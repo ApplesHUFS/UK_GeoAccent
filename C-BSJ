@@ -1,0 +1,267 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+    precision_score,
+    recall_score
+)
+from typing import List, Dict, Optional, Tuple
+import pandas as pd
+
+
+class MetricsCalculator:
+    """분류 모델 평가를 위한 메트릭 계산 클래스"""
+    
+    def __init__(self, y_true: np.ndarray, y_pred: np.ndarray, class_names: Optional[List[str]] = None):
+        """
+        Args:
+            y_true: 실제 레이블
+            y_pred: 예측 레이블
+            class_names: 클래스 이름 리스트 (옵션)
+        """
+        self.y_true = np.array(y_true)
+        self.y_pred = np.array(y_pred)
+        self.class_names = class_names
+        
+        # 고유 클래스 추출
+        self.classes = np.unique(np.concatenate([self.y_true, self.y_pred]))
+        
+        if self.class_names is None:
+            self.class_names = [f"Class {i}" for i in self.classes]
+    
+    def calculate_accuracy(self) -> Dict[str, float]:
+        """
+        Overall accuracy와 per-class accuracy 계산
+        
+        Returns:
+            Dictionary containing overall and per-class accuracy
+        """
+        # Overall accuracy
+        overall_acc = accuracy_score(self.y_true, self.y_pred)
+        
+        # Per-class accuracy
+        per_class_acc = {}
+        for idx, class_label in enumerate(self.classes):
+            mask = self.y_true == class_label
+            if mask.sum() > 0:
+                class_acc = accuracy_score(
+                    self.y_true[mask], 
+                    self.y_pred[mask]
+                )
+                per_class_acc[self.class_names[idx]] = class_acc
+        
+        return {
+            'overall_accuracy': overall_acc,
+            'per_class_accuracy': per_class_acc
+        }
+    
+    def calculate_f1_scores(self) -> Dict[str, float]:
+        """
+        F1-score (macro, weighted, per-class) 계산
+        
+        Returns:
+            Dictionary containing macro, weighted, and per-class F1 scores
+        """
+        # Macro F1
+        f1_macro = f1_score(self.y_true, self.y_pred, average='macro', zero_division=0)
+        
+        # Weighted F1
+        f1_weighted = f1_score(self.y_true, self.y_pred, average='weighted', zero_division=0)
+        
+        # Per-class F1
+        f1_per_class = f1_score(self.y_true, self.y_pred, average=None, zero_division=0)
+        per_class_f1 = {
+            self.class_names[idx]: score 
+            for idx, score in enumerate(f1_per_class)
+        }
+        
+        return {
+            'f1_macro': f1_macro,
+            'f1_weighted': f1_weighted,
+            'f1_per_class': per_class_f1
+        }
+    
+    def get_confusion_matrix(self) -> np.ndarray:
+        """
+        Confusion matrix 생성
+        
+        Returns:
+            Confusion matrix as numpy array
+        """
+        return confusion_matrix(self.y_true, self.y_pred)
+    
+    def plot_confusion_matrix(self, 
+                             figsize: Tuple[int, int] = (10, 8),
+                             cmap: str = 'Blues',
+                             save_path: Optional[str] = None) -> plt.Figure:
+        """
+        Confusion matrix 시각화
+        
+        Args:
+            figsize: Figure 크기
+            cmap: Color map
+            save_path: 저장 경로 (옵션)
+            
+        Returns:
+            Matplotlib figure object
+        """
+        cm = self.get_confusion_matrix()
+        
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.heatmap(
+            cm, 
+            annot=True, 
+            fmt='d', 
+            cmap=cmap,
+            xticklabels=self.class_names,
+            yticklabels=self.class_names,
+            cbar_kws={'label': 'Count'},
+            ax=ax
+        )
+        
+        ax.set_xlabel('Predicted Label', fontsize=12, fontweight='bold')
+        ax.set_ylabel('True Label', fontsize=12, fontweight='bold')
+        ax.set_title('Confusion Matrix', fontsize=14, fontweight='bold', pad=20)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"Confusion matrix saved to {save_path}")
+        
+        return fig
+    
+    def get_classification_report(self, output_dict: bool = False):
+        """
+        Classification report 생성
+        
+        Args:
+            output_dict: True면 dictionary로 반환, False면 string으로 반환
+            
+        Returns:
+            Classification report (dict or string)
+        """
+        return classification_report(
+            self.y_true, 
+            self.y_pred,
+            target_names=self.class_names,
+            output_dict=output_dict,
+            zero_division=0
+        )
+    
+    def print_classification_report(self):
+        """Classification report를 보기 좋게 출력"""
+        print("\n" + "="*60)
+        print("CLASSIFICATION REPORT")
+        print("="*60)
+        print(self.get_classification_report())
+    
+    def get_all_metrics(self) -> Dict:
+        """
+        모든 메트릭을 한번에 계산
+        
+        Returns:
+            Dictionary containing all metrics
+        """
+        accuracy_metrics = self.calculate_accuracy()
+        f1_metrics = self.calculate_f1_scores()
+        
+        return {
+            'accuracy': accuracy_metrics,
+            'f1_scores': f1_metrics,
+            'confusion_matrix': self.get_confusion_matrix(),
+            'classification_report': self.get_classification_report(output_dict=True)
+        }
+    
+    def print_summary(self):
+        """모든 주요 메트릭을 요약하여 출력"""
+        print("\n" + "="*60)
+        print("METRICS SUMMARY")
+        print("="*60)
+        
+        # Accuracy
+        acc_metrics = self.calculate_accuracy()
+        print(f"\n📊 Overall Accuracy: {acc_metrics['overall_accuracy']:.4f}")
+        print("\nPer-Class Accuracy:")
+        for class_name, acc in acc_metrics['per_class_accuracy'].items():
+            print(f"  - {class_name}: {acc:.4f}")
+        
+        # F1 Scores
+        f1_metrics = self.calculate_f1_scores()
+        print(f"\n📈 F1 Score (Macro): {f1_metrics['f1_macro']:.4f}")
+        print(f"📈 F1 Score (Weighted): {f1_metrics['f1_weighted']:.4f}")
+        print("\nPer-Class F1 Score:")
+        for class_name, f1 in f1_metrics['f1_per_class'].items():
+            print(f"  - {class_name}: {f1:.4f}")
+        
+        # Classification Report
+        self.print_classification_report()
+
+
+def calculate_metrics(y_true: np.ndarray, 
+                     y_pred: np.ndarray,
+                     class_names: Optional[List[str]] = None,
+                     plot_cm: bool = True,
+                     save_cm_path: Optional[str] = None) -> Dict:
+    """
+    간편하게 모든 메트릭을 계산하는 함수
+    
+    Args:
+        y_true: 실제 레이블
+        y_pred: 예측 레이블
+        class_names: 클래스 이름 리스트
+        plot_cm: Confusion matrix 플롯 여부
+        save_cm_path: Confusion matrix 저장 경로
+        
+    Returns:
+        Dictionary containing all metrics
+    """
+    calculator = MetricsCalculator(y_true, y_pred, class_names)
+    
+    # 요약 출력
+    calculator.print_summary()
+    
+    # Confusion matrix 플롯
+    if plot_cm:
+        calculator.plot_confusion_matrix(save_path=save_cm_path)
+        plt.show()
+    
+    return calculator.get_all_metrics()
+
+
+# 사용 예제
+if __name__ == "__main__":
+    # 예제 데이터 생성
+    np.random.seed(42)
+    y_true = np.random.randint(0, 3, 100)
+    y_pred = np.random.randint(0, 3, 100)
+    class_names = ['Cat', 'Dog', 'Bird']
+    
+    print("="*60)
+    print("EXAMPLE: Calculating Metrics")
+    print("="*60)
+    
+    # 방법 1: 클래스 사용
+    print("\n[Method 1] Using MetricsCalculator class:")
+    calculator = MetricsCalculator(y_true, y_pred, class_names)
+    calculator.print_summary()
+    calculator.plot_confusion_matrix(save_path='confusion_matrix.png')
+    
+    # 방법 2: 간편 함수 사용
+    print("\n[Method 2] Using convenience function:")
+    metrics = calculate_metrics(
+        y_true, 
+        y_pred, 
+        class_names,
+        plot_cm=True,
+        save_cm_path='confusion_matrix_v2.png'
+    )
+    
+    # 개별 메트릭 접근
+    print("\n[Accessing individual metrics]:")
+    print(f"Overall Accuracy: {metrics['accuracy']['overall_accuracy']:.4f}")
+    print(f"F1 Macro: {metrics['f1_scores']['f1_macro']:.4f}")
