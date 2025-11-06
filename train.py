@@ -1,10 +1,3 @@
-"""
-Novel Architecture 학습 스크립트
-- Geographic Attention
-- Partial Fine-tuning
-- Multi-task + Distance Loss
-"""
-
 import torch
 from torch.utils.data import DataLoader
 from transformers import Wav2Vec2Processor
