@@ -84,7 +84,7 @@ class GeoAccentTrainer:
             'val_gender_acc': []
         }
     
-    def _get_coordinates_tensor(self, region_names):
+    def _get_coordinates_tensor(self, region_names): #pre-processing에서 처리하는게 좋아보임
         """
         지역 이름 리스트 -> 좌표 텐서 변환
         

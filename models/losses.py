@@ -12,31 +12,24 @@ class MultiTaskLossWithDistance(nn.Module):
     Combined loss function:
     1. Cross-entropy for region classification
     2. Cross-entropy for gender classification (aux)
-    3. Distance loss: 예측된 지역 임베딩 <-> 실제 지역 임베딩
+    3. Cosine distance loss: 예측된 지역 임베딩 <-> 실제 지역 임베딩
     """
     
     def __init__(
         self,
         region_weight=1.0,
         gender_weight=0.3,
-        distance_weight=0.5,
-        distance_metric='cosine'
+        distance_weight=0.5
     ):
         super().__init__()
         
         self.region_weight = region_weight
         self.gender_weight = gender_weight
         self.distance_weight = distance_weight
-        self.distance_metric = distance_metric
         
         self.region_criterion = nn.CrossEntropyLoss()
         self.gender_criterion = nn.CrossEntropyLoss()
-        
-        # Cosine embedding loss
-        if distance_metric == 'cosine':
-            self.distance_criterion = nn.CosineEmbeddingLoss()
-        else:
-            self.distance_criterion = nn.MSELoss()
+        self.distance_criterion = nn.CosineEmbeddingLoss()
     
     def forward(self, outputs, region_labels, gender_labels):
         """
@@ -61,19 +54,14 @@ class MultiTaskLossWithDistance(nn.Module):
             gender_labels              # (B,)
         )
         
-        # 3. Distance loss
+        # 3. Cosine distance loss
         if outputs['geo_embedding'] is not None:
             predicted_geo = outputs['predicted_geo_embedding']  # (B, geo_dim)
             actual_geo = outputs['geo_embedding']               # (B, geo_dim)
             
-            if self.distance_metric == 'cosine':
-                # Cosine embedding loss
-                # target: +1 (similar), -1 (dissimilar)
-                target = torch.ones(predicted_geo.size(0)).to(predicted_geo.device)  # (B,)
-                distance_loss = self.distance_criterion(predicted_geo, actual_geo, target)
-            else:
-                # MSE loss
-                distance_loss = self.distance_criterion(predicted_geo, actual_geo)
+            # target: +1 (similar)
+            target = torch.ones(predicted_geo.size(0)).to(predicted_geo.device)  # (B,)
+            distance_loss = self.distance_criterion(predicted_geo, actual_geo, target)
         else:
             distance_loss = torch.tensor(0.0).to(outputs['region_logits'].device)
         

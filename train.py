@@ -41,7 +41,7 @@ def main():
         'batch_size': 8,  # Large model이므로 작은 배치
         'learning_rate': 1e-5,  # Partial fine-tuning이므로 낮은 LR
         'num_epochs': 30,
-        'num_frozen_layers': 8,  # 하위 8개 레이어 freeze
+        'num_frozen_layers': 16,  # 하위 16개 레이어 freeze
         'geo_embedding_dim': 256,
         'fusion_dim': 512,
         'dropout': 0.1,
