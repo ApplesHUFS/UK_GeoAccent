@@ -1,85 +1,88 @@
-# ============================================================================
-# 👤 PERSON D: 문서화 및 시각화
-# 파일 1: visualization.py
-# ============================================================================
-
-"""
-시각화 함수
-- 학습 곡선
-- Confusion matrix
-- Per-class metrics
-"""
-
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 from pathlib import Path
+import librosa
+import librosa.display
 
 def plot_confusion_matrix(predictions, labels, class_names, title="Confusion Matrix", save_path=None):
-    """
-    Confusion matrix 시각화
-    
-    Args:
-        predictions: (n_samples,) 예측 레이블
-        labels: (n_samples,) 실제 레이블
-        class_names: 클래스 이름 리스트
-        title: 그래프 제목
-        save_path: 저장 경로 (None이면 저장 안 함)
-    """
-    # TODO: 구현
-    # 1. confusion_matrix 계산
-    # 2. Heatmap으로 시각화
-    # 3. 저장 (if save_path is not None)
-    pass
+    # Confusion matrix 시각화
+    cm = confusion_matrix(labels, predictions, labels=list(range(len(class_names))))
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names, ax=ax)
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('True')
+    ax.set_title(title)
+    plt.tight_layout()
+    if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+    plt.show()
+
 
 def plot_training_curves(train_losses, val_losses, val_accuracies, save_path=None):
-    """
-    학습 곡선 시각화
+    # 학습 곡선 시각화
+    epochs = np.arange(1, len(train_losses)+1)
+    fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     
-    Args:
-        train_losses: 에포크별 훈련 손실값 리스트
-        val_losses: 에포크별 검증 손실값 리스트
-        val_accuracies: 에포크별 검증 정확도 리스트
-        save_path: 저장 경로
-    """
-    # TODO: 구현
-    # 1. 3개의 서브플롯 생성
-    #    - Train vs Val loss
-    #    - Val accuracy
-    #    - 함께
-    # 2. 저장
-    pass
+    # Loss plot
+    axs[0].plot(epochs, train_losses, label='Train Loss', color='b')
+    axs[0].plot(epochs, val_losses, label='Val Loss', color='orange')
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('Loss')
+    axs[0].legend()
+    axs[0].set_title('Loss Curve')
+    
+    # Val accuracy plot
+    axs[1].plot(epochs, val_accuracies, label='Val Acc', color='green')
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('Accuracy')
+    axs[1].legend()
+    axs[1].set_title('Validation Accuracy')
+    
+    plt.tight_layout()
+    if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+    plt.show()
+
 
 def plot_per_class_metrics(metrics_dict, class_names, save_path=None):
-    """
-    클래스별 메트릭 시각화 (F1, Precision, Recall)
+    # 클래스별 메트릭 (F1, Precision, Recall) 바 플롯
+    f1s = [metrics_dict[class_]['f1'] for class_ in class_names]
+    pre = [metrics_dict[class_]['precision'] for class_ in class_names]
+    rec = [metrics_dict[class_]['recall'] for class_ in class_names]
+    x = np.arange(len(class_names))
+    width = 0.2
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar(x - width, f1s, width, label='F1', color='skyblue')
+    ax.bar(x, pre, width, label='Precision', color='orange')
+    ax.bar(x + width, rec, width, label='Recall', color='lightgreen')
+    ax.set_xticks(x)
+    ax.set_xticklabels(class_names, rotation=30)
+    ax.legend()
+    ax.set_title('Per-class Metrics')
     
-    Args:
-        metrics_dict: 클래스별 메트릭 딕셔너리
-                     {
-                        'class_name': {'f1': float, 'precision': float, 'recall': float},
-                        ...
-                     }
-        class_names: 클래스 이름 리스트
-        save_path: 저장 경로
-    """
-    # TODO: 구현
-    # 1. Bar plot으로 각 메트릭 시각화
-    # 2. 저장
-    pass
+    plt.tight_layout()
+    if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+    plt.show()
+
 
 def plot_waveform(audio_path, title="Waveform", save_path=None):
-    """
-    오디오 파형 시각화
-    
-    Args:
-        audio_path: 오디오 파일 경로
-        title: 제목
-        save_path: 저장 경로
-    """
-    # TODO: 구현
-    # 1. 오디오 로드
-    # 2. 파형 시각화
-    # 3. 저장
-    pass
+    # 오디오 파형 시각화
+    y, sr = librosa.load(audio_path, sr=None)
+    plt.figure(figsize=(10, 2))
+    librosa.display.waveshow(y, sr=sr)
+    plt.title(title)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude')
+    plt.tight_layout()
+    if save_path is not None:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+    plt.show()
