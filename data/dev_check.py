@@ -3,7 +3,7 @@
 from data import EnglishDialectsDataset, collate_fn
 
 # 데이터셋 초기화
-ds = EnglishDialectsDataset(split='train', use_augment=False, processor=None)
+ds = EnglishDialectsDataset()
 print("✅ Dataset loaded successfully!")
 print("Sample count:", len(ds))
 
