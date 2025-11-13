@@ -9,6 +9,8 @@ import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 import matplotlib.pyplot as plt
 import os
+from evaluate import ModelEvaluator
+from data.data_config import REGION_LABELS
 
 
 class GeoAccentTrainer:
@@ -84,7 +86,7 @@ class GeoAccentTrainer:
             'val_gender_acc': []
         }
     
-    def _get_coordinates_tensor(self, region_names): #pre-processing에서 처리하는게 좋아보임
+    def _get_coordinates_tensor(self, region_names):
         """
         지역 이름 리스트 -> 좌표 텐서 변환
         
@@ -123,13 +125,11 @@ class GeoAccentTrainer:
         pbar = tqdm(self.train_loader, desc='Training')
         for batch in pbar:
             # 배치 언팩
-            input_values = batch['input_values'].to(self.device)  # (B, seq_len)
-            attention_mask = batch['attention_mask'].to(self.device)  # (B, seq_len)
-            region_labels = batch['region_labels'].to(self.device)  # (B,) - 정수 인덱스
-            gender_labels = batch['gender_labels'].to(self.device)  # (B,)
-            
-            # 지역 좌표 가져오기
-            coordinates = self._get_coordinates_tensor(batch['region_name'])  # (B, 2)
+            input_values = batch['input_values'].to(self.device)
+            attention_mask = batch['attention_mask'].to(self.device)
+            region_labels = batch['region_labels'].to(self.device)
+            gender_labels = batch['gender_labels'].to(self.device)
+            coordinates = batch['coords'].to(self.device)
             
             # Forward
             outputs = self.model(
@@ -186,9 +186,13 @@ class GeoAccentTrainer:
             'gender_acc': gender_acc
         }
     
-    def validate(self):
+    def validate(self, epoch=None, save_confusion_matrix=False):
         """
         검증
+        
+        Args:
+            epoch: 현재 에포크 (confusion matrix 저장용)
+            save_confusion_matrix: confusion matrix 저장 여부
         
         Returns:
             검증 메트릭 딕셔너리
@@ -204,11 +208,9 @@ class GeoAccentTrainer:
             for batch in tqdm(self.val_loader, desc='Validating'):
                 input_values = batch['input_values'].to(self.device)
                 attention_mask = batch['attention_mask'].to(self.device)
-                region_labels = batch['region'].to(self.device)
-                gender_labels = batch['gender'].to(self.device)
-                
-                # 지역 좌표
-                coordinates = self._get_coordinates_tensor(batch['region_name'])
+                region_labels = batch['region_labels'].to(self.device)
+                gender_labels = batch['gender_labels'].to(self.device)
+                coordinates = batch['coords'].to(self.device)
                 
                 # Forward
                 outputs = self.model(
@@ -217,7 +219,7 @@ class GeoAccentTrainer:
                     coordinates=coordinates
                 )
                 
-                # Loss (region_loss만 필요)
+                # Loss
                 total_loss, _, _, _ = self.criterion(
                     outputs, region_labels, gender_labels
                 )
@@ -228,7 +230,7 @@ class GeoAccentTrainer:
                 gender_preds.extend(outputs['gender_logits'].argmax(dim=-1).cpu().numpy())
                 gender_labels_list.extend(gender_labels.cpu().numpy())
                 
-                # Attention weights 저장 (시각화용)
+                # Attention weights 저장
                 if outputs['attention_weights'] is not None:
                     attention_weights_list.append(outputs['attention_weights'].cpu().numpy())
         
@@ -237,6 +239,22 @@ class GeoAccentTrainer:
         region_acc = accuracy_score(region_labels_list, region_preds)
         region_f1 = f1_score(region_labels_list, region_preds, average='weighted')
         gender_acc = accuracy_score(gender_labels_list, gender_preds)
+        
+        # ModelEvaluator로 상세 평가 및 시각화
+        if save_confusion_matrix and epoch is not None:
+            evaluator = ModelEvaluator(
+                y_true=np.array(region_labels_list),
+                y_pred=np.array(region_preds),
+                class_names=list(REGION_LABELS.keys())
+            )
+            
+            # Confusion Matrix 저장
+            cm_path = os.path.join(self.log_dir, f'confusion_matrix_epoch_{epoch}.png')
+            evaluator.plot_confusion_matrix(
+                save_path=cm_path,
+                show_percentages=True
+            )
+            print(f"  📊 Confusion matrix saved to {cm_path}")
         
         return {
             'loss': avg_loss,
@@ -328,7 +346,6 @@ class GeoAccentTrainer:
         print("\n" + "="*70)
         print("Starting Geo-Accent Classifier Training")
         print("="*70)
-        self.model.print_model_info()
         
         for epoch in range(1, self.num_epochs + 1):
             print(f"\n{'='*70}")
@@ -338,8 +355,9 @@ class GeoAccentTrainer:
             # Train
             train_metrics = self.train_epoch()
             
-            # Validate
-            val_metrics = self.validate()
+            # Validate (매 5 에포크마다 confusion matrix 저장)
+            save_cm = (epoch % 5 == 0)
+            val_metrics = self.validate(epoch=epoch, save_confusion_matrix=save_cm)
             
             # Scheduler step
             self.scheduler.step()
@@ -390,3 +408,7 @@ class GeoAccentTrainer:
         
         # 최종 히스토리 시각화
         self.plot_history()
+        
+        # 최종 confusion matrix 생성
+        print("\n📊 Generating final evaluation metrics...")
+        self.validate(epoch='final', save_confusion_matrix=True)
