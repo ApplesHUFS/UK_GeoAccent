@@ -125,8 +125,8 @@ class GeoAccentTrainer:
             # 배치 언팩
             input_values = batch['input_values'].to(self.device)  # (B, seq_len)
             attention_mask = batch['attention_mask'].to(self.device)  # (B, seq_len)
-            region_labels = batch['region'].to(self.device)  # (B,) - 정수 인덱스
-            gender_labels = batch['gender'].to(self.device)  # (B,)
+            region_labels = batch['region_labels'].to(self.device)  # (B,) - 정수 인덱스
+            gender_labels = batch['gender_labels'].to(self.device)  # (B,)
             
             # 지역 좌표 가져오기
             coordinates = self._get_coordinates_tensor(batch['region_name'])  # (B, 2)
