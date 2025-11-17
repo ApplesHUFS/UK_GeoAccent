@@ -30,7 +30,7 @@ DISTANCE_WEIGHT = 0.5
 # ======================== Training Configuration ========================
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 8
-NUM_EPOCHS = 30
+NUM_EPOCHS = 5
 NUM_WORKERS = 4
 
 # Scheduler
