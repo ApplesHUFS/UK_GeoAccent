@@ -1,7 +1,7 @@
 """
 Custom PyTorch Dataset 구현
 """
-
+import os
 import torch
 from torch.utils.data import Dataset
 from datasets import load_dataset
@@ -20,70 +20,25 @@ class EnglishDialectsDataset(Dataset):
          보조 레이블: 성별 (2개)
     """
     
-    def __init__(self, split='train', use_augment=False, processor=None):
-
-        # TODO: 구현
+    def __init__(self, split='train', use_augment=False, processor=None, 
+                data_dir="./data/english_dialects"):
         super().__init__()
         self.split = split
         self.use_augment = use_augment
         self.processor = processor
-
         
-        # 1. HuggingFace datasets 라이브러리로 데이터셋 로드
-        from datasets import load_dataset, concatenate_datasets, Value
-        dataset_name = "ylacombe/english_dialects"
-
-        configs = [
-        "irish_male", "midlands_female", "midlands_male",
-        "northern_female", "northern_male",
-        "scottish_female", "scottish_male",
-        "southern_female", "southern_male",
-        "welsh_female", "welsh_male"
-        ]
-
-        datasets_list = []
-        for cfg in configs:
-            ds_cfg = load_dataset(dataset_name, cfg, split=split)
-            ds_cfg = ds_cfg.add_column("config_name", [cfg] * len(ds_cfg))
-            datasets_list.append(ds_cfg)
-
-        hf_ds = concatenate_datasets(datasets_list)
-        self.dataset = hf_ds
-        print(f"✅ Loaded all dialect configs. Total samples: {len(self.dataset)}")
-
-        '''
-        # 2. split별로 데이터 필터링
-        if "split" in hf_ds.column_names:
-            hf_ds = hf_ds.filter(lambda ex: ex["split"] == split)
-        '''
-
-         # ✅ 여기서 dataset 저장
-        self.dataset = hf_ds
-
-        # 3. 레이블 파싱 (예: 'irish_male' -> region='irish', gender='male')
-        def _parse_label(label_str: str):
-            tok = (
-                label_str.lower()
-                .replace("-", "_")
-                .replace(" ", "_")
-                .strip("_")
+        # 로컬에서 로드
+        from datasets import load_from_disk
+        local_path = f"{data_dir}/{split}"
+        
+        if os.path.exists(local_path):
+            self.dataset = load_from_disk(local_path)
+            print(f"✅ Loaded from disk: {len(self.dataset)} samples")
+        else:
+            raise FileNotFoundError(
+                f"Dataset not found at {local_path}. "
+                f"Please run 'python download_dataset.py' first."
             )
-            parts = tok.split("_")
-            region = parts[0] if len(parts) > 0 else None
-            gender = parts[1] if len(parts) > 1 else None
-
-            if region not in REGION_LABELS:
-                raise ValueError(f"Unknown region label: {region} (from '{label_str}')")
-            if gender not in GENDER_LABELS:
-                raise ValueError(f"Unknown gender label: {gender} (from '{label_str}')")
-
-            region_id = REGION_LABELS[region]
-            gender_id = GENDER_LABELS[gender]
-            lat, lon = REGION_COORDS[region]
-            nlat, nlon = normalize_coords(lat, lon)
-            return region, gender, region_id, gender_id, (nlat, nlon)
-
-        self._parse_label = _parse_label
 
         # 4. 전처리기 초기화
         #self.dataset = None
