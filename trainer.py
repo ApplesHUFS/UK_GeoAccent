@@ -1,20 +1,22 @@
 """
 trainer.py
-모델 학습 및 검증 로직
+모델 학습 및 검증 로직 - RTX 4090 최적화 버전
 """
 
 import torch
+from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 import matplotlib.pyplot as plt
 import os
+import time
 from evaluate import ModelEvaluator
 from data.data_config import REGION_LABELS
 
 
 class GeoAccentTrainer:
-    """지역 억양 분류 모델 학습 클래스"""
+    """지역 억양 분류 모델 학습 클래스 - 최적화 버전"""
     
     def __init__(
         self,
@@ -25,9 +27,19 @@ class GeoAccentTrainer:
         region_coords,
         device='cuda',
         learning_rate=1e-5,
-        num_epochs=30,
+        num_epochs=25,
+        gradient_accumulation_steps=4,
+        use_amp=True,
+        amp_dtype='bfloat16',
+        max_grad_norm=1.0,
+        warmup_steps=500,
+        early_stopping_patience=5,
+        min_delta=0.001,
+        save_steps=500,
+        eval_steps=500,
         checkpoint_dir='./checkpoints',
-        log_dir='./logs'
+        log_dir='./logs',
+        use_wandb=False
     ):
         """
         Args:
@@ -39,8 +51,18 @@ class GeoAccentTrainer:
             device: 'cuda' 또는 'cpu'
             learning_rate: 학습률
             num_epochs: 에포크 수
+            gradient_accumulation_steps: 그래디언트 누적 스텝
+            use_amp: Mixed Precision 사용 여부
+            amp_dtype: 'float16' or 'bfloat16'
+            max_grad_norm: Gradient clipping norm
+            warmup_steps: Learning rate warmup 스텝
+            early_stopping_patience: Early stopping patience
+            min_delta: Early stopping 최소 개선 폭
+            save_steps: 체크포인트 저장 주기
+            eval_steps: 검증 주기
             checkpoint_dir: 체크포인트 저장 경로
             log_dir: 로그 저장 경로
+            use_wandb: Weights & Biases 사용 여부
         """
         self.model = model.to(device)
         self.criterion = criterion
@@ -49,19 +71,52 @@ class GeoAccentTrainer:
         self.region_coords = region_coords
         self.device = device
         self.num_epochs = num_epochs
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.max_grad_norm = max_grad_norm
+        self.save_steps = save_steps
+        self.eval_steps = eval_steps
         
-        # Optimizer: AdamW (partial fine-tuning용)
+        # Mixed Precision Training
+        self.use_amp = use_amp and device == 'cuda'
+        if self.use_amp:
+            self.scaler = GradScaler()
+            self.amp_dtype = torch.bfloat16 if amp_dtype == 'bfloat16' else torch.float16
+            print(f"✅ Using AMP with {amp_dtype}")
+        
+        # Optimizer: AdamW
         self.optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
-            weight_decay=0.01
+            weight_decay=0.01,
+            betas=(0.9, 0.999),
+            eps=1e-8
         )
         
-        # Scheduler: Cosine Annealing
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        # Scheduler: Warmup + Cosine Annealing
+        total_steps = len(train_loader) * num_epochs // gradient_accumulation_steps
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        
+        # Warmup Scheduler
+        self.warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,
-            T_max=num_epochs
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=warmup_steps
         )
+        
+        # Main Scheduler
+        self.main_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=total_steps - warmup_steps,
+            eta_min=1e-7
+        )
+        
+        # Early Stopping
+        self.early_stopping_patience = early_stopping_patience
+        self.min_delta = min_delta
+        self.patience_counter = 0
+        self.should_stop = False
         
         # 디렉토리
         self.checkpoint_dir = checkpoint_dir
@@ -72,6 +127,7 @@ class GeoAccentTrainer:
         # 최고 성능 추적
         self.best_val_acc = 0.0
         self.best_epoch = 0
+        self.global_step = 0
         
         # 학습 히스토리
         self.history = {
@@ -83,19 +139,27 @@ class GeoAccentTrainer:
             'train_region_acc': [],
             'val_region_acc': [],
             'train_gender_acc': [],
-            'val_gender_acc': []
+            'val_gender_acc': [],
+            'learning_rates': []
         }
+        
+        # Weights & Biases
+        self.use_wandb = use_wandb
+        if use_wandb:
+            try:
+                import wandb
+                self.wandb = wandb
+                print("✅ Weights & Biases enabled")
+            except ImportError:
+                print("⚠️  wandb not installed, disabling W&B logging")
+                self.use_wandb = False
+        
+        # 시간 측정
+        self.epoch_start_time = None
+        self.total_train_time = 0
     
     def _get_coordinates_tensor(self, region_names):
-        """
-        지역 이름 리스트 -> 좌표 텐서 변환
-        
-        Args:
-            region_names: 지역명 리스트
-        
-        Returns:
-            좌표 텐서 (B, 2)
-        """
+        """지역 이름 리스트 -> 좌표 텐서 변환"""
         coords = []
         for region in region_names:
             region_key = region.lower()
@@ -105,7 +169,22 @@ class GeoAccentTrainer:
                 raise ValueError(f"Unknown region: {region}")
         return torch.FloatTensor(coords).to(self.device)
     
-    def train_epoch(self):
+    def _update_scheduler(self):
+        """Learning rate scheduler 업데이트"""
+        if self.global_step < self.warmup_steps:
+            self.warmup_scheduler.step()
+        else:
+            self.main_scheduler.step()
+    
+    def _log_metrics(self, metrics, prefix='train'):
+        """메트릭 로깅 (W&B 지원)"""
+        if self.use_wandb:
+            log_dict = {f"{prefix}/{k}": v for k, v in metrics.items()}
+            log_dict['global_step'] = self.global_step
+            log_dict['learning_rate'] = self.optimizer.param_groups[0]['lr']
+            self.wandb.log(log_dict)
+    
+    def train_epoch(self, epoch):
         """
         한 에포크 학습
         
@@ -113,6 +192,7 @@ class GeoAccentTrainer:
             에포크별 메트릭 딕셔너리
         """
         self.model.train()
+        self.epoch_start_time = time.time()
         
         total_loss_sum = 0
         region_loss_sum = 0
@@ -122,8 +202,10 @@ class GeoAccentTrainer:
         region_preds, region_labels_list = [], []
         gender_preds, gender_labels_list = [], []
         
-        pbar = tqdm(self.train_loader, desc='Training')
-        for batch in pbar:
+        self.optimizer.zero_grad()
+        
+        pbar = tqdm(self.train_loader, desc=f'Epoch {epoch}/{self.num_epochs}')
+        for step, batch in enumerate(pbar):
             # 배치 언팩
             input_values = batch['input_values'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
@@ -131,26 +213,69 @@ class GeoAccentTrainer:
             gender_labels = batch['gender_labels'].to(self.device)
             coordinates = batch['coords'].to(self.device)
             
-            # Forward
-            outputs = self.model(
-                input_values,
-                attention_mask=attention_mask,
-                coordinates=coordinates
-            )
+            # Mixed Precision Forward
+            if self.use_amp:
+                with autocast(dtype=self.amp_dtype):
+                    outputs = self.model(
+                        input_values,
+                        attention_mask=attention_mask,
+                        coordinates=coordinates
+                    )
+                    
+                    total_loss, region_loss, gender_loss, distance_loss = self.criterion(
+                        outputs, region_labels, gender_labels
+                    )
+                    # Gradient Accumulation
+                    total_loss = total_loss / self.gradient_accumulation_steps
+                
+                # Backward (AMP)
+                self.scaler.scale(total_loss).backward()
+            else:
+                # Standard Forward & Backward
+                outputs = self.model(
+                    input_values,
+                    attention_mask=attention_mask,
+                    coordinates=coordinates
+                )
+                
+                total_loss, region_loss, gender_loss, distance_loss = self.criterion(
+                    outputs, region_labels, gender_labels
+                )
+                total_loss = total_loss / self.gradient_accumulation_steps
+                total_loss.backward()
             
-            # Loss 계산
-            total_loss, region_loss, gender_loss, distance_loss = self.criterion(
-                outputs, region_labels, gender_labels
-            )
+            # Optimizer Step (Gradient Accumulation 고려)
+            if (step + 1) % self.gradient_accumulation_steps == 0:
+                if self.use_amp:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    self.optimizer.step()
+                
+                self.optimizer.zero_grad()
+                self._update_scheduler()
+                self.global_step += 1
+                
+                # 주기적 검증
+                if self.global_step % self.eval_steps == 0:
+                    val_metrics = self.validate()
+                    self._log_metrics(val_metrics, prefix='val')
+                    self.model.train()
+                
+                # 주기적 체크포인트 저장
+                if self.global_step % self.save_steps == 0:
+                    self.save_checkpoint(
+                        epoch=epoch,
+                        val_acc=self.best_val_acc,
+                        is_best=False,
+                        step=self.global_step
+                    )
             
-            # Backward
-            self.optimizer.zero_grad()
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            self.optimizer.step()
-            
-            # 메트릭 누적
-            total_loss_sum += total_loss.item()
+            # 메트릭 누적 (원래 스케일로 복원)
+            total_loss_sum += (total_loss.item() * self.gradient_accumulation_steps)
             region_loss_sum += region_loss.item()
             gender_loss_sum += gender_loss.item()
             distance_loss_sum += distance_loss.item()
@@ -161,10 +286,13 @@ class GeoAccentTrainer:
             gender_labels_list.extend(gender_labels.cpu().numpy())
             
             # Progress bar 업데이트
+            current_lr = self.optimizer.param_groups[0]['lr']
             pbar.set_postfix({
-                'total_loss': f'{total_loss.item():.4f}',
-                'region_loss': f'{region_loss.item():.4f}',
-                'dist_loss': f'{distance_loss.item():.4f}'
+                'loss': f'{total_loss.item() * self.gradient_accumulation_steps:.4f}',
+                'r_loss': f'{region_loss.item():.4f}',
+                'd_loss': f'{distance_loss.item():.4f}',
+                'lr': f'{current_lr:.2e}',
+                'step': self.global_step
             })
         
         # 에포크 메트릭 계산
@@ -177,26 +305,22 @@ class GeoAccentTrainer:
         region_acc = accuracy_score(region_labels_list, region_preds)
         gender_acc = accuracy_score(gender_labels_list, gender_preds)
         
+        epoch_time = time.time() - self.epoch_start_time
+        self.total_train_time += epoch_time
+        
         return {
             'total_loss': avg_total_loss,
             'region_loss': avg_region_loss,
             'gender_loss': avg_gender_loss,
             'distance_loss': avg_distance_loss,
             'region_acc': region_acc,
-            'gender_acc': gender_acc
+            'gender_acc': gender_acc,
+            'epoch_time': epoch_time,
+            'lr': self.optimizer.param_groups[0]['lr']
         }
     
     def validate(self, epoch=None, save_confusion_matrix=False):
-        """
-        검증
-        
-        Args:
-            epoch: 현재 에포크 (confusion matrix 저장용)
-            save_confusion_matrix: confusion matrix 저장 여부
-        
-        Returns:
-            검증 메트릭 딕셔너리
-        """
+        """검증"""
         self.model.eval()
         
         total_loss_sum = 0
@@ -205,24 +329,33 @@ class GeoAccentTrainer:
         attention_weights_list = []
         
         with torch.no_grad():
-            for batch in tqdm(self.val_loader, desc='Validating'):
+            for batch in tqdm(self.val_loader, desc='Validating', leave=False):
                 input_values = batch['input_values'].to(self.device)
                 attention_mask = batch['attention_mask'].to(self.device)
                 region_labels = batch['region_labels'].to(self.device)
                 gender_labels = batch['gender_labels'].to(self.device)
                 coordinates = batch['coords'].to(self.device)
                 
-                # Forward
-                outputs = self.model(
-                    input_values,
-                    attention_mask=attention_mask,
-                    coordinates=coordinates
-                )
-                
-                # Loss
-                total_loss, _, _, _ = self.criterion(
-                    outputs, region_labels, gender_labels
-                )
+                # Forward (Mixed Precision)
+                if self.use_amp:
+                    with autocast(dtype=self.amp_dtype):
+                        outputs = self.model(
+                            input_values,
+                            attention_mask=attention_mask,
+                            coordinates=coordinates
+                        )
+                        total_loss, _, _, _ = self.criterion(
+                            outputs, region_labels, gender_labels
+                        )
+                else:
+                    outputs = self.model(
+                        input_values,
+                        attention_mask=attention_mask,
+                        coordinates=coordinates
+                    )
+                    total_loss, _, _, _ = self.criterion(
+                        outputs, region_labels, gender_labels
+                    )
                 
                 total_loss_sum += total_loss.item()
                 region_preds.extend(outputs['region_logits'].argmax(dim=-1).cpu().numpy())
@@ -230,7 +363,6 @@ class GeoAccentTrainer:
                 gender_preds.extend(outputs['gender_logits'].argmax(dim=-1).cpu().numpy())
                 gender_labels_list.extend(gender_labels.cpu().numpy())
                 
-                # Attention weights 저장
                 if outputs['attention_weights'] is not None:
                     attention_weights_list.append(outputs['attention_weights'].cpu().numpy())
         
@@ -240,7 +372,7 @@ class GeoAccentTrainer:
         region_f1 = f1_score(region_labels_list, region_preds, average='weighted')
         gender_acc = accuracy_score(gender_labels_list, gender_preds)
         
-        # ModelEvaluator로 상세 평가 및 시각화
+        # Confusion Matrix 저장
         if save_confusion_matrix and epoch is not None:
             evaluator = ModelEvaluator(
                 y_true=np.array(region_labels_list),
@@ -248,12 +380,8 @@ class GeoAccentTrainer:
                 class_names=list(REGION_LABELS.keys())
             )
             
-            # Confusion Matrix 저장
             cm_path = os.path.join(self.log_dir, f'confusion_matrix_epoch_{epoch}.png')
-            evaluator.plot_confusion_matrix(
-                save_path=cm_path,
-                show_percentages=True
-            )
+            evaluator.plot_confusion_matrix(save_path=cm_path, show_percentages=True)
             print(f"  📊 Confusion matrix saved to {cm_path}")
         
         return {
@@ -266,74 +394,103 @@ class GeoAccentTrainer:
             'attention_weights': np.concatenate(attention_weights_list) if attention_weights_list else None
         }
     
-    def save_checkpoint(self, epoch, val_acc, is_best=False):
-        """
-        체크포인트 저장
-        
-        Args:
-            epoch: 현재 에포크
-            val_acc: 검증 정확도
-            is_best: 최고 성능 모델 여부
-        """
+    def check_early_stopping(self, val_acc):
+        """Early Stopping 체크"""
+        if val_acc > self.best_val_acc + self.min_delta:
+            self.best_val_acc = val_acc
+            self.patience_counter = 0
+            return True  # Improved
+        else:
+            self.patience_counter += 1
+            if self.patience_counter >= self.early_stopping_patience:
+                self.should_stop = True
+                print(f"\n⚠️  Early stopping triggered! No improvement for {self.early_stopping_patience} epochs.")
+            return False
+    
+    def save_checkpoint(self, epoch, val_acc, is_best=False, step=None):
+        """체크포인트 저장"""
         checkpoint = {
             'epoch': epoch,
+            'global_step': self.global_step,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
+            'warmup_scheduler_state_dict': self.warmup_scheduler.state_dict(),
+            'main_scheduler_state_dict': self.main_scheduler.state_dict(),
             'val_acc': val_acc,
+            'best_val_acc': self.best_val_acc,
             'history': self.history
         }
         
+        if self.use_amp:
+            checkpoint['scaler_state_dict'] = self.scaler.state_dict()
+        
         # Latest checkpoint
-        path = os.path.join(self.checkpoint_dir, 'latest_checkpoint.pt')
+        filename = f'checkpoint_step_{step}.pt' if step else 'latest_checkpoint.pt'
+        path = os.path.join(self.checkpoint_dir, filename)
         torch.save(checkpoint, path)
         
         # Best checkpoint
         if is_best:
-            path = os.path.join(self.checkpoint_dir, 'best_checkpoint.pt')
-            torch.save(checkpoint, path)
+            best_path = os.path.join(self.checkpoint_dir, 'best_checkpoint.pt')
+            torch.save(checkpoint, best_path)
             print(f"💾 Best model saved! Val Acc: {val_acc:.4f}")
     
     def plot_history(self):
         """학습 히스토리 시각화"""
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig, axes = plt.subplots(2, 3, figsize=(20, 12))
         
         # 1. Total Loss
-        axes[0, 0].plot(self.history['train_total_loss'], label='Train Total Loss', linewidth=2)
-        axes[0, 0].plot(self.history['val_total_loss'], label='Val Total Loss', linewidth=2)
-        axes[0, 0].set_xlabel('Epoch', fontsize=12)
-        axes[0, 0].set_ylabel('Loss', fontsize=12)
-        axes[0, 0].set_title('Total Loss', fontsize=14, fontweight='bold')
-        axes[0, 0].legend(fontsize=10)
+        axes[0, 0].plot(self.history['train_total_loss'], label='Train', linewidth=2)
+        axes[0, 0].plot(self.history['val_total_loss'], label='Val', linewidth=2)
+        axes[0, 0].set_xlabel('Epoch')
+        axes[0, 0].set_ylabel('Loss')
+        axes[0, 0].set_title('Total Loss')
+        axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
         
         # 2. Component Losses
-        axes[0, 1].plot(self.history['train_region_loss'], label='Region Loss', linewidth=2)
-        axes[0, 1].plot(self.history['train_gender_loss'], label='Gender Loss', linewidth=2)
-        axes[0, 1].plot(self.history['train_distance_loss'], label='Distance Loss', linewidth=2)
-        axes[0, 1].set_xlabel('Epoch', fontsize=12)
-        axes[0, 1].set_ylabel('Loss', fontsize=12)
-        axes[0, 1].set_title('Component Losses (Training)', fontsize=14, fontweight='bold')
-        axes[0, 1].legend(fontsize=10)
+        axes[0, 1].plot(self.history['train_region_loss'], label='Region', linewidth=2)
+        axes[0, 1].plot(self.history['train_gender_loss'], label='Gender', linewidth=2)
+        axes[0, 1].plot(self.history['train_distance_loss'], label='Distance', linewidth=2)
+        axes[0, 1].set_xlabel('Epoch')
+        axes[0, 1].set_ylabel('Loss')
+        axes[0, 1].set_title('Component Losses')
+        axes[0, 1].legend()
         axes[0, 1].grid(True, alpha=0.3)
         
-        # 3. Region Accuracy
-        axes[1, 0].plot(self.history['train_region_acc'], label='Train Region Acc', linewidth=2)
-        axes[1, 0].plot(self.history['val_region_acc'], label='Val Region Acc', linewidth=2)
-        axes[1, 0].set_xlabel('Epoch', fontsize=12)
-        axes[1, 0].set_ylabel('Accuracy', fontsize=12)
-        axes[1, 0].set_title('Region Classification Accuracy', fontsize=14, fontweight='bold')
-        axes[1, 0].legend(fontsize=10)
+        # 3. Learning Rate
+        axes[0, 2].plot(self.history['learning_rates'], linewidth=2, color='green')
+        axes[0, 2].set_xlabel('Epoch')
+        axes[0, 2].set_ylabel('Learning Rate')
+        axes[0, 2].set_title('Learning Rate Schedule')
+        axes[0, 2].set_yscale('log')
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # 4. Region Accuracy
+        axes[1, 0].plot(self.history['train_region_acc'], label='Train', linewidth=2)
+        axes[1, 0].plot(self.history['val_region_acc'], label='Val', linewidth=2)
+        axes[1, 0].set_xlabel('Epoch')
+        axes[1, 0].set_ylabel('Accuracy')
+        axes[1, 0].set_title('Region Classification Accuracy')
+        axes[1, 0].legend()
         axes[1, 0].grid(True, alpha=0.3)
         
-        # 4. Gender Accuracy
-        axes[1, 1].plot(self.history['train_gender_acc'], label='Train Gender Acc', linewidth=2)
-        axes[1, 1].plot(self.history['val_gender_acc'], label='Val Gender Acc', linewidth=2)
-        axes[1, 1].set_xlabel('Epoch', fontsize=12)
-        axes[1, 1].set_ylabel('Accuracy', fontsize=12)
-        axes[1, 1].set_title('Gender Classification Accuracy (Auxiliary Task)', fontsize=14, fontweight='bold')
-        axes[1, 1].legend(fontsize=10)
+        # 5. Gender Accuracy
+        axes[1, 1].plot(self.history['train_gender_acc'], label='Train', linewidth=2)
+        axes[1, 1].plot(self.history['val_gender_acc'], label='Val', linewidth=2)
+        axes[1, 1].set_xlabel('Epoch')
+        axes[1, 1].set_ylabel('Accuracy')
+        axes[1, 1].set_title('Gender Classification Accuracy')
+        axes[1, 1].legend()
         axes[1, 1].grid(True, alpha=0.3)
+        
+        # 6. Training Time
+        if hasattr(self, 'epoch_times'):
+            axes[1, 2].plot(self.epoch_times, linewidth=2, color='purple')
+            axes[1, 2].set_xlabel('Epoch')
+            axes[1, 2].set_ylabel('Time (seconds)')
+            axes[1, 2].set_title('Epoch Training Time')
+            axes[1, 2].grid(True, alpha=0.3)
         
         plt.tight_layout()
         save_path = os.path.join(self.log_dir, 'training_history.png')
@@ -345,7 +502,11 @@ class GeoAccentTrainer:
         """전체 학습 프로세스"""
         print("\n" + "="*70)
         print("Starting Geo-Accent Classifier Training")
+        print(f"Total steps: {self.total_steps}")
+        print(f"Effective batch size: {self.train_loader.batch_size * self.gradient_accumulation_steps}")
         print("="*70)
+        
+        self.epoch_times = []
         
         for epoch in range(1, self.num_epochs + 1):
             print(f"\n{'='*70}")
@@ -353,14 +514,12 @@ class GeoAccentTrainer:
             print('='*70)
             
             # Train
-            train_metrics = self.train_epoch()
+            train_metrics = self.train_epoch(epoch)
+            self.epoch_times.append(train_metrics['epoch_time'])
             
-            # Validate (매 5 에포크마다 confusion matrix 저장)
+            # Validate
             save_cm = (epoch % 5 == 0)
             val_metrics = self.validate(epoch=epoch, save_confusion_matrix=save_cm)
-            
-            # Scheduler step
-            self.scheduler.step()
             
             # History 기록
             self.history['train_total_loss'].append(train_metrics['total_loss'])
@@ -372,43 +531,46 @@ class GeoAccentTrainer:
             self.history['val_region_acc'].append(val_metrics['region_acc'])
             self.history['train_gender_acc'].append(train_metrics['gender_acc'])
             self.history['val_gender_acc'].append(val_metrics['gender_acc'])
+            self.history['learning_rates'].append(train_metrics['lr'])
+            
+            # 로깅
+            self._log_metrics(train_metrics, prefix='train')
+            self._log_metrics(val_metrics, prefix='val')
             
             # 결과 출력
             print(f"\n📊 Training Metrics:")
             print(f"  Total Loss: {train_metrics['total_loss']:.4f}")
-            print(f"  Region Loss: {train_metrics['region_loss']:.4f}")
-            print(f"  Gender Loss: {train_metrics['gender_loss']:.4f}")
-            print(f"  Distance Loss: {train_metrics['distance_loss']:.4f}")
             print(f"  Region Acc: {train_metrics['region_acc']:.4f}")
             print(f"  Gender Acc: {train_metrics['gender_acc']:.4f}")
+            print(f"  Epoch Time: {train_metrics['epoch_time']:.2f}s")
             
             print(f"\n📊 Validation Metrics:")
             print(f"  Loss: {val_metrics['loss']:.4f}")
             print(f"  Region Acc: {val_metrics['region_acc']:.4f}")
             print(f"  Region F1: {val_metrics['region_f1']:.4f}")
             print(f"  Gender Acc: {val_metrics['gender_acc']:.4f}")
-            print(f"  LR: {self.optimizer.param_groups[0]['lr']:.2e}")
             
-            # 체크포인트 저장
-            is_best = val_metrics['region_acc'] > self.best_val_acc
-            if is_best:
-                self.best_val_acc = val_metrics['region_acc']
+            # Early Stopping & Checkpoint
+            improved = self.check_early_stopping(val_metrics['region_acc'])
+            if improved:
                 self.best_epoch = epoch
+                self.save_checkpoint(epoch, val_metrics['region_acc'], is_best=True)
             
-            self.save_checkpoint(epoch, val_metrics['region_acc'], is_best)
+            if self.should_stop:
+                print(f"\n🛑 Training stopped at epoch {epoch}")
+                break
             
-            # 매 5 에포크마다 히스토리 시각화
+            # 주기적 히스토리 시각화
             if epoch % 5 == 0:
                 self.plot_history()
         
+        # 학습 완료
         print("\n" + "="*70)
         print("Training Completed!")
         print(f"Best Val Accuracy: {self.best_val_acc:.4f} at Epoch {self.best_epoch}")
+        print(f"Total Training Time: {self.total_train_time / 3600:.2f} hours")
+        print(f"Average Epoch Time: {np.mean(self.epoch_times):.2f} seconds")
         print("="*70 + "\n")
         
-        # 최종 히스토리 시각화
         self.plot_history()
-        
-        # 최종 confusion matrix 생성
-        print("\n📊 Generating final evaluation metrics...")
         self.validate(epoch='final', save_confusion_matrix=True)

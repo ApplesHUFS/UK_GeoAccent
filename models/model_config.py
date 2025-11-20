@@ -1,6 +1,6 @@
 """
 model_config.py
-GeoAccentClassifier 모델 설정
+GeoAccentClassifier 모델 설정 - RTX 4090 24GB 최적화
 """
 
 # ======================== 모델 아키텍처 ========================
@@ -28,42 +28,49 @@ GENDER_WEIGHT = 0.3
 DISTANCE_WEIGHT = 0.5
 
 # ======================== Training Configuration ========================
+# RTX 4090 24GB 최적화 설정
 LEARNING_RATE = 1e-5
-BATCH_SIZE = 8
-NUM_EPOCHS = 5
-NUM_WORKERS = 4
+BATCH_SIZE = 4  # 4로 시작 (안정성 우선)
+GRADIENT_ACCUMULATION_STEPS = 4  # 실질적 배치 = 16
+NUM_EPOCHS = 25  # 31시간 데이터에 적합
+NUM_WORKERS = 4  # 6 vCPU 중 4개 활용
+
+# Mixed Precision Training (속도 30% 향상)
+USE_AMP = True  # Automatic Mixed Precision
+AMP_DTYPE = "bfloat16"  # RTX 4090은 bf16 지원 (fp16보다 안정적)
+
+# Gradient Clipping
+MAX_GRAD_NORM = 1.0
 
 # Scheduler
 SCHEDULER_TYPE = "cosine"  # 'cosine' or 'linear'
+WARMUP_STEPS = 500  # 초기 학습 안정화
+
+# Early Stopping (조기 종료로 시간 절약)
+EARLY_STOPPING_PATIENCE = 5  # 5 epoch 동안 개선 없으면 종료
+MIN_DELTA = 0.001  # 최소 개선 폭
 
 # ======================== Checkpoint & Logging ========================
 CHECKPOINT_DIR = "./checkpoints_geo_accent"
 LOG_DIR = "./logs_geo_accent"
 
-# ======================== 사전 정의된 설정 (실험용) ========================
+# Checkpoint 저장 전략
+SAVE_STRATEGY = "steps"  # 'epoch' or 'steps'
+SAVE_STEPS = 500  # 500 스텝마다 저장 (Spot Instance 대비)
+SAVE_TOTAL_LIMIT = 3  # 최근 3개 체크포인트만 유지 (디스크 절약)
 
-# Small Model (빠른 실험)
-SMALL_CONFIG = {
-    "model_name": "facebook/wav2vec2-base",
-    "hidden_dim": 768,
-    "geo_embedding_dim": 128,
-    "fusion_dim": 256,
-    "num_frozen_layers": 8
-}
+# Logging
+LOGGING_STEPS = 50  # 50 스텝마다 로그
+EVAL_STEPS = 500  # 500 스텝마다 검증
 
-# Large Model (최고 성능)
-LARGE_CONFIG = {
-    "model_name": "facebook/wav2vec2-large-xlsr-53",
-    "hidden_dim": 1024,
-    "geo_embedding_dim": 512,
-    "fusion_dim": 768,
-    "num_frozen_layers": 20,
-    "dropout": 0.2
-}
+# ======================== 메모리 최적화 ========================
 
-# Full Fine-tune
-FULL_FINETUNE_CONFIG = {
-    "freeze_lower_layers": False,
-    "num_frozen_layers": 0,
-    "dropout": 0.15
-}
+# DataLoader 최적화
+PIN_MEMORY = True  # GPU 전송 속도 향상
+PERSISTENT_WORKERS = True  # Worker 재사용으로 오버헤드 감소
+
+# ======================== 실험 추적 ========================
+# Weights & Biases 통합 (선택사항)
+USE_WANDB = False  # True로 설정하면 W&B 로깅
+WANDB_PROJECT = "geo-accent-classifier"
+WANDB_RUN_NAME = "xlsr53-31h-rtx4090"
