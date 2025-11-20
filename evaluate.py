@@ -112,17 +112,18 @@ class ModelEvaluator:
             iterator = tqdm(self.test_loader, desc="Predicting") if verbose else self.test_loader
             
             for batch in iterator:
-                # 데이터 처리 (다양한 형식 지원)
-                if isinstance(batch, dict):
-                    inputs = batch['input'].to(self.device)
-                    labels = batch['label'].to(self.device)
-                elif isinstance(batch, (list, tuple)) and len(batch) >= 2:
-                    inputs, labels = batch[0].to(self.device), batch[1].to(self.device)
-                else:
-                    raise ValueError(f"Unsupported batch format: {type(batch)}")
+                # 입력 데이터 추출
+                input_values = batch['input_values'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+            
+                # 레이블 선택
+                if task == 'region':
+                    labels = batch['region_labels'].to(self.device)
+                else:  # gender
+                    labels = batch['gender_labels'].to(self.device)
                 
                 # 예측
-                outputs = self.model(inputs)
+                outputs = self.model(input_values)
                 
                 # 출력 처리
                 if outputs.dim() == 1 or outputs.shape[1] == 1:
@@ -134,11 +135,11 @@ class ModelEvaluator:
                     # Multi-class classification
                     probas = torch.softmax(outputs, dim=1)
                     preds = torch.argmax(outputs, dim=1)
-                
-                # 결과 저장
-                all_labels.append(labels.cpu().numpy())
-                all_preds.append(preds.cpu().numpy())
-                all_probas.append(probas.cpu().numpy())
+            
+            # 결과 저장
+            all_labels.append(labels.cpu().numpy())
+            all_preds.append(preds.cpu().numpy())
+            all_probas.append(probas.cpu().numpy())
         
         # 결합
         self.y_true = np.concatenate(all_labels)
