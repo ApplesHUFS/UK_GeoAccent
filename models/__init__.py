@@ -1,6 +1,6 @@
 """
 models/__init__.py
-모듈 임포트
+모델 모듈
 """
 
 from .embeddings import GeoEmbedding, AttentionFusion

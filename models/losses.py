@@ -32,35 +32,23 @@ class MultiTaskLossWithDistance(nn.Module):
         self.distance_criterion = nn.CosineEmbeddingLoss()
     
     def forward(self, outputs, region_labels, gender_labels):
-        """
-        Args:
-            outputs: model forward의 출력 dict
-            region_labels: 지역 레이블 - (B,)
-            gender_labels: 성별 레이블 - (B,)
-        
-        Returns:
-            total_loss, region_loss, gender_loss, distance_loss
-        """
-        
         # 1. Region classification loss
         region_loss = self.region_criterion(
-            outputs['region_logits'],  # (B, num_regions)
-            region_labels              # (B,)
+            outputs['region_logits'],
+            region_labels
         )
         
         # 2. Gender classification loss
         gender_loss = self.gender_criterion(
-            outputs['gender_logits'],  # (B, num_genders)
-            gender_labels              # (B,)
+            outputs['gender_logits'],
+            gender_labels
         )
         
         # 3. Cosine distance loss
-        if outputs['geo_embedding'] is not None:
-            predicted_geo = outputs['predicted_geo_embedding']  # (B, geo_dim)
-            actual_geo = outputs['geo_embedding']               # (B, geo_dim)
-            
-            # target: +1 (similar)
-            target = torch.ones(predicted_geo.size(0)).to(predicted_geo.device)  # (B,)
+        if outputs['true_geo_embedding'] is not None:  # ✅ 수정
+            predicted_geo = outputs['predicted_geo_embedding']
+            actual_geo = outputs['true_geo_embedding']  # ✅ 수정
+            target = torch.ones(predicted_geo.size(0)).to(predicted_geo.device)
             distance_loss = self.distance_criterion(predicted_geo, actual_geo, target)
         else:
             distance_loss = torch.tensor(0.0).to(outputs['region_logits'].device)
