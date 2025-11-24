@@ -1,0 +1,172 @@
+.App {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.App-header {
+  padding: 2rem;
+  text-align: center;
+  color: white;
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+}
+
+.App-header p {
+  margin: 0.5rem 0 0 0;
+  font-size: 1.2rem;
+  opacity: 0.9;
+}
+
+.App-main {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* 업로드 섹션 */
+.upload-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 1rem 2rem;
+  background: #667eea;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: background 0.3s;
+}
+
+.upload-label:hover {
+  background: #5568d3;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-name {
+  margin-top: 1rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* 분석 버튼 */
+.analyze-button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: white;
+  background: #48bb78;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.3s;
+  margin-bottom: 1.5rem;
+}
+
+.analyze-button:hover:not(:disabled) {
+  background: #38a169;
+}
+
+.analyze-button:disabled {
+  background: #cbd5e0;
+  cursor: not-allowed;
+}
+
+/* 결과 섹션 */
+.result-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.result-section h2 {
+  margin-top: 0;
+  color: #2d3748;
+  text-align: center;
+}
+
+.main-result {
+  text-align: center;
+  padding: 1.5rem;
+  background: #f7fafc;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.accent-label {
+  margin: 0;
+  color: #718096;
+  font-size: 0.9rem;
+}
+
+.accent-value {
+  margin: 0.5rem 0;
+  font-size: 2rem;
+  font-weight: bold;
+  color: #667eea;
+}
+
+.confidence {
+  margin: 0;
+  color: #48bb78;
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+/* 확률 바 */
+.all-probabilities {
+  margin-top: 2rem;
+}
+
+.all-probabilities h3 {
+  color: #2d3748;
+  margin-bottom: 1rem;
+}
+
+.probability-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.8rem;
+  gap: 0.5rem;
+}
+
+.accent-name {
+  min-width: 80px;
+  font-weight: 500;
+  color: #4a5568;
+}
+
+.bar-container {
+  flex: 1;
+  height: 24px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.5s ease;
+}
+
+.probability-value {
+  min-width: 50px;
+  text-align: right;
+  color: #718096;
+  font-size: 0.9rem;
+}
