@@ -21,7 +21,7 @@ mkdir -p data
 # Download English Dialects dataset
 echo ""
 echo "Downloading English Dialects dataset from Google Drive..."
-gdown YOUR_FILE_ID_HERE -O english_dialects_full.zip
+gdown 1XTl4ooKpKmx80bONEhUV53UU3CMZFf_n -O english_dialects_full.zip
 
 echo "Extracting dataset..."
 unzip -q english_dialects_full.zip -d data/temp/
