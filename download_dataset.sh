@@ -6,57 +6,28 @@ echo "========================================"
 echo "English Dialects Dataset Download"
 echo "========================================"
 
-# Check for required packages
+# Check for gdown
 if ! command -v gdown &> /dev/null; then
     echo "Installing gdown..."
     pip install gdown
 fi
 
-# Install required packages for preprocessing
-pip install datasets scikit-learn
-
-# Create data directory
 mkdir -p data
 
-# Download English Dialects dataset
 echo ""
-echo "Downloading English Dialects dataset from Google Drive..."
-gdown 1XTl4ooKpKmx80bONEhUV53UU3CMZFf_n -O english_dialects_full.zip
+echo "Downloading English Dialects dataset (TAR.GZ format)..."
+gdown 1N9OOK7s6c7NoUKbIMn5eAcDGX-SeZkeS -O english_dialects.tar.gz
 
 echo "Extracting dataset..."
-unzip -q english_dialects_full.zip -d data/temp/
-rm english_dialects_full.zip
+tar -xzvf english_dialects.tar.gz -C data/
 
-# Split dataset into train/validation/test
-echo ""
-echo "Splitting dataset into train/validation/test..."
-python preprocessing.py \
-    --save_dir ./data/english_dialects \
-    --train_ratio 0.7 \
-    --val_ratio 0.15 \
-    --test_ratio 0.15 \
-    --seed 42
+rm english_dialects.tar.gz
 
-# Clean up temp directory
-rm -rf data/temp/
-
-# Verify splits
-if [ -d "data/english_dialects/train" ] && \
-   [ -d "data/english_dialects/validation" ] && \
-   [ -d "data/english_dialects/test" ]; then
+if [ -d "data/english_dialects" ]; then
     echo ""
-    echo "========================================"
-    echo "✅ Dataset preparation complete!"
-    echo "========================================"
-    echo "Train: ./data/english_dialects/train"
-    echo "Validation: ./data/english_dialects/validation"
-    echo "Test: ./data/english_dialects/test"
-    echo ""
-    echo "Next steps:"
-    echo "  1. python train.py"
-    echo "  2. python evaluate.py --split test"
-    echo "========================================"
+    echo "✅ Dataset extraction complete!"
+    echo "Location: ./data/english_dialects/"
 else
-    echo "❌ Error: Split creation failed"
+    echo "❌ Extraction failed"
     exit 1
 fi
