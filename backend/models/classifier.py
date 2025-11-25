@@ -26,6 +26,7 @@ class GeoAccentClassifier(nn.Module):
         dropout=0.1,
         freeze_lower_layers=True,
         num_frozen_layers=16
+        use_fusion=True
     ):
         super().__init__()
         
@@ -38,6 +39,7 @@ class GeoAccentClassifier(nn.Module):
         self.fusion_dim = fusion_dim
         self.dropout = dropout
         self.num_frozen_layers = num_frozen_layers
+        self.use_fusion = use_fusion
         
         # Audio feature encoder
         print(f'Loading pretrained model: {model_name}')
@@ -132,10 +134,14 @@ class GeoAccentClassifier(nn.Module):
         geo_embedding = self.geo_embedding(coordinates)
         
         # Attention fusion
-        fused_features, attention_weights = self.attention_fusion(
-            audio_features_pooled,
-            geo_embedding
-        )
+        if self.use_fusion:
+            fused_features, attention_weights = self.attention_fusion(
+                audio_features_pooled,
+                geo_embedding
+            )
+        else:
+            fused_features = audio_features_pooled
+            attention_weights = None
         
         # Classification
         region_logits = self.region_classifier(fused_features)

@@ -102,6 +102,13 @@ def main():
         help='Dropout rate'
     )
 
+    train_parser.add_argument(
+        '--use_fusion',
+        action='store_true',
+        default=True,
+        help='Use GeoEmbedding Fusion Module'
+    )
+
     # Training arguments
     train_parser.add_argument(
         '--batch_size',
@@ -149,14 +156,14 @@ def main():
     train_parser.add_argument(
         '--gender_weight',
         type=float,
-        default=0.3,
+        default=0.1,
         help='Gender classification loss weight'
     )
 
     train_parser.add_argument(
         '--distance_weight',
         type=float,
-        default=0.5,
+        default=0.05,
         help='Distance regularization loss weight'
     )
 

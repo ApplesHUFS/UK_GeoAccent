@@ -43,6 +43,7 @@ class GeoAccentConfig:
     geo_embedding_dim: int = 256
     fusion_dim: int = 512
     dropout: float = 0.1
+    use_fusion: bool = True
 
     # Fine-tuning
     freeze_lower_layers: bool = True

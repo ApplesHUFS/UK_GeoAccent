@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument('--geo_embedding_dim', type=int, default=256)
     parser.add_argument('--fusion_dim', type=int, default=512)
     parser.add_argument('--dropout', type=float, default=0.1)
+    parser.add_argument('--use_fusion', action='store_true', default=True)
     
     # Training arguments
     parser.add_argument('--batch_size', type=int, default=4)
@@ -104,6 +105,7 @@ def train_model(args):
         dropout=args.dropout,
         freeze_lower_layers=True,
         num_frozen_layers=args.num_frozen_layers
+        use_fusion=args.use_fusion
     )
     model = model.to(args.device)
     print(f"   Model loaded on {args.device}")
