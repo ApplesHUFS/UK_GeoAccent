@@ -1,6 +1,6 @@
 """
+evaluation/metrics.py
 Metrics Calculation Module
-Contains pure metric computation functions.
 """
 
 import numpy as np
