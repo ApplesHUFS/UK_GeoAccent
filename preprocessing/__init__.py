@@ -1,6 +1,6 @@
 """
 preprocessing/__init__.py
-전처리 모듈
+Preprocessing module
 """
 
 from .preprocessing import AudioPreprocessor, SpecAugment
