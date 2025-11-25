@@ -147,8 +147,15 @@ def main():
     # Command 실행
     if args.command == 'preprocess':
         from preprocess import split_dataset
+
+        configs = [
+        'irish_male', 'midlands_female', 'midlands_male', 'northern_female',
+        'northern_male', 'scottish_female', 'scottish_male',
+        'southern_female', 'southern_male', 'welsh_female', 'welsh_male'
+    ]
         split_dataset(
             dataset_name=args.dataset_name,
+            configs=configs, 
             save_dir=args.save_dir,
             train_ratio=args.train_ratio,
             val_ratio=args.val_ratio,
