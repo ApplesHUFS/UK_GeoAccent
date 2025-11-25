@@ -1,6 +1,6 @@
 """
 data/__init__.py
-데이터 모듈
+Data module
 """
 
 from .dataset import EnglishDialectsDataset, collate_fn
