@@ -1,6 +1,6 @@
 """
 evaluation/__init__.py
-평가 모듈
+Evaluation module
 """
 
 from .metrics import AccentMetrics
