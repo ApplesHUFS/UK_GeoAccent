@@ -1,6 +1,6 @@
 """
 train/__init__.py
-훈련 모듈
+Training module
 """
 
 from .trainer import AccentTrainer

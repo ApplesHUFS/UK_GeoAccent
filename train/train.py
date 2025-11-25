@@ -1,7 +1,11 @@
+"""
+train/train.py
+Training script for GeoAccentClassifier
+"""
+
 import torch
 from torch.utils.data import DataLoader
 import argparse
-import json
 import os
 
 from models import GeoAccentClassifier, MultiTaskLossWithDistance
@@ -11,17 +15,17 @@ from utils.config import REGION_COORDS, REGION_LABELS
 
 
 def parse_args():
-    """Command line arguments"""
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Train Geo-Accent Classifier')
     
-    # Model args
+    # Model arguments
     parser.add_argument('--model_name', type=str, default='facebook/wav2vec2-large-xlsr-53')
     parser.add_argument('--num_frozen_layers', type=int, default=16)
     parser.add_argument('--geo_embedding_dim', type=int, default=256)
     parser.add_argument('--fusion_dim', type=int, default=512)
     parser.add_argument('--dropout', type=float, default=0.1)
     
-    # Training args
+    # Training arguments
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--gradient_accumulation_steps', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
@@ -48,7 +52,7 @@ def parse_args():
     parser.add_argument('--save_steps', type=int, default=500)
     parser.add_argument('--eval_steps', type=int, default=500)
     parser.add_argument('--resume', type=str, default=None,
-                       help='Path to checkpoint to resume from (e.g., checkpoints/last.pt)')
+                        help='Path to checkpoint to resume from')
     
     # Early stopping
     parser.add_argument('--early_stopping_patience', type=int, default=5)
@@ -57,7 +61,7 @@ def parse_args():
     # Device
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Wandb
+    # WandB
     parser.add_argument('--use_wandb', action='store_true')
     parser.add_argument('--wandb_project', type=str, default='geo-accent-classifier')
     parser.add_argument('--wandb_run_name', type=str, default=None)
@@ -66,50 +70,29 @@ def parse_args():
 
 
 def train_model(args):
-    """훈련 실행"""
+    """Execute training"""
     
     print("=" * 50)
     print("GeoAccent Classifier Training")
     print("=" * 50)
     
-    # 1. 데이터셋 로드
+    # 1. Load datasets
     print("\n1. Loading datasets...")
-    train_dataset = EnglishDialectsDataset(
-        split='train',
-        use_augment=args.use_augment,
-        data_dir=args.data_dir
-    )
-    
-    val_dataset = EnglishDialectsDataset(
-        split='validation',
-        use_augment=False,
-        data_dir=args.data_dir
-    )
+    train_dataset = EnglishDialectsDataset(split='train', use_augment=args.use_augment, data_dir=args.data_dir)
+    val_dataset = EnglishDialectsDataset(split='validation', use_augment=False, data_dir=args.data_dir)
     
     print(f"   Train samples: {len(train_dataset)}")
     print(f"   Validation samples: {len(val_dataset)}")
     
-    # 2. DataLoader 생성
+    # 2. Create DataLoaders
     print("\n2. Creating DataLoaders...")
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True
-    )
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+                              num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True
-    )
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
+                            num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
     
-    # 3. 모델 생성
+    # 3. Initialize model
     print("\n3. Creating model...")
     model = GeoAccentClassifier(
         model_name=args.model_name,
@@ -122,19 +105,16 @@ def train_model(args):
         freeze_lower_layers=True,
         num_frozen_layers=args.num_frozen_layers
     )
-    
     model = model.to(args.device)
     print(f"   Model loaded on {args.device}")
     
     # 4. Loss function
     print("\n4. Creating loss function...")
-    criterion = MultiTaskLossWithDistance(
-        region_weight=args.region_weight,
-        gender_weight=args.gender_weight,
-        distance_weight=args.distance_weight
-    )
+    criterion = MultiTaskLossWithDistance(region_weight=args.region_weight,
+                                          gender_weight=args.gender_weight,
+                                          distance_weight=args.distance_weight)
     
-    # 5. Trainer 생성
+    # 5. Create trainer
     print("\n5. Creating trainer...")
     trainer = AccentTrainer(
         model=model,
@@ -163,7 +143,7 @@ def train_model(args):
         print(f"\n6. Resuming from checkpoint: {args.resume}")
         trainer.load_checkpoint(args.resume)
     
-    # 7. 훈련 시작
+    # 7. Start training
     print("\n7. Starting training...")
     print("=" * 50)
     trainer.train()
