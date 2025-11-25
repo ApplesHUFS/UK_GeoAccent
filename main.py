@@ -106,6 +106,20 @@ def main():
         default='./checkpoints',
         help='체크포인트 저장 디렉토리'
     )
+
+    train_parser.add_argument(
+    '--data_dir',
+    type=str,
+    default='./data/english_dialects',
+    help='train/val/test 데이터셋이 들어있는 디렉토리'
+)
+    train_parser.add_argument(
+    '--num_workers',
+    type=int,
+    default=4,
+    help='DataLoader에서 사용할 worker(서브프로세스) 수'
+)
+
     
     # 3. Evaluate command
     eval_parser = subparsers.add_parser(
