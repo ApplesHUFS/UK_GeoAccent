@@ -70,11 +70,23 @@ class ModelEvaluator:
                 gender_labels = batch['gender_labels'].to(self.device)
                 
                 # Forward pass
+                # Prevent label leakage during evaluation: do not give true
+                # coordinates to the model when computing predictions. Use
+                # a zeroed coordinate input and compute true_geo_embedding
+                # separately for metrics that require it.
+                coords_zero = torch.zeros_like(coords)
                 outputs = self.model(
                     input_values=input_values,
                     attention_mask=attention_mask,
-                    coordinates=coords
+                    coordinates=coords_zero
                 )
+
+                # compute true geo embedding for metric computations
+                try:
+                    outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
+                except Exception:
+                    # if not available, rely on whatever the model returned
+                    pass
                 
                 # Predictions
                 region_preds = torch.argmax(outputs['region_logits'], dim=1)

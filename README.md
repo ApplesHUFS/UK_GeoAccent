@@ -64,7 +64,7 @@ pip install -r requirements.txt
 # HuggingFace 데이터셋 자동 다운로드 및 전처리
 python main.py preprocess \
     --dataset_name ylacombe/english_dialects \
-    --output_dir data \
+    --save_dir ./data/english_dialects \
     --train_ratio 0.8 \
     --val_ratio 0.1 \
     --test_ratio 0.1

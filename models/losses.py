@@ -32,6 +32,20 @@ class MultiTaskLossWithDistance(nn.Module):
         self.distance_criterion = nn.CosineEmbeddingLoss()
     
     def forward(self, outputs, region_labels, gender_labels):
+        # Basic sanity checks to help catch label/logit mismatches that can
+        # silently lead to zero/invalid losses during training.
+        if outputs.get('region_logits') is None:
+            raise ValueError('Missing region_logits in model outputs')
+        if outputs.get('gender_logits') is None:
+            raise ValueError('Missing gender_logits in model outputs')
+
+        # shapes
+        if outputs['region_logits'].dim() != 2:
+            raise ValueError(f"region_logits must be 2D tensor (B, C), got {outputs['region_logits'].shape}")
+        if region_labels.dim() != 1:
+            raise ValueError(f"region_labels must be 1D tensor (B,), got {region_labels.shape}")
+        if outputs['region_logits'].size(0) != region_labels.size(0):
+            raise ValueError(f"Batch size mismatch between region_logits {outputs['region_logits'].size(0)} and region_labels {region_labels.size(0)}")
         # 1. Region classification loss
         region_loss = self.region_criterion(
             outputs['region_logits'],
@@ -59,5 +73,9 @@ class MultiTaskLossWithDistance(nn.Module):
             self.gender_weight * gender_loss +
             self.distance_weight * distance_loss
         )
-        
+
+        # Final sanity: ensure tensor dtype and device stay consistent
+        if not torch.is_tensor(total_loss):
+            total_loss = torch.tensor(float(total_loss), device=outputs['region_logits'].device)
+
         return total_loss, region_loss, gender_loss, distance_loss

@@ -1,8 +1,4 @@
-"""
-models/classifier.py
-GeoAccentClassifier 메인 모델
-"""
-
+import os
 import torch
 import torch.nn as nn
 from transformers import Wav2Vec2Model
@@ -35,9 +31,16 @@ class GeoAccentClassifier(nn.Module):
         num_frozen_layers=16
     ):
         super().__init__()
+        
+        # 설정값 저장 (체크포인트용)
+        self.model_name = model_name
         self.num_regions = num_regions
         self.num_genders = num_genders
         self.hidden_dim = hidden_dim
+        self.geo_embedding_dim = geo_embedding_dim
+        self.fusion_dim = fusion_dim
+        self.dropout = dropout
+        self.num_frozen_layers = num_frozen_layers
         
         # 1. Feature Encoder
         print(f'Loading pretrained model: {model_name}')
@@ -62,14 +65,14 @@ class GeoAccentClassifier(nn.Module):
         
         # 4. Classification Heads
         self.region_classifier = nn.Sequential(
-            nn.Linear(fusion_dim, 256),
+            nn.Linear(hidden_dim, 256),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(256, num_regions)
         )
         
         self.gender_classifier = nn.Sequential(
-            nn.Linear(fusion_dim, 128),
+            nn.Linear(hidden_dim, 128),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(128, num_genders)
@@ -77,7 +80,7 @@ class GeoAccentClassifier(nn.Module):
         
         # 5. Region Embedding Predictor (for distance loss)
         self.region_embedding_predictor = nn.Sequential(
-            nn.Linear(fusion_dim, 256),
+            nn.Linear(hidden_dim, 256),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(256, geo_embedding_dim)
@@ -103,7 +106,8 @@ class GeoAccentClassifier(nn.Module):
                 'region_logits': (B, num_regions),
                 'gender_logits': (B, num_genders),
                 'predicted_geo_embedding': (B, geo_embedding_dim),
-                'true_geo_embedding': (B, geo_embedding_dim)
+                'true_geo_embedding': (B, geo_embedding_dim),
+                'attention_weights': (B, 1)
             }
         """
         # 1. Audio Feature Extraction
@@ -111,27 +115,57 @@ class GeoAccentClassifier(nn.Module):
             input_values=input_values,
             attention_mask=attention_mask
         )
-        audio_features = wav2vec_out.last_hidden_state  # (B, T, hidden_dim)
+        audio_features = wav2vec_out.last_hidden_state  # (B, T', hidden_dim)
         
-        # 2. Geographic Embedding
-        geo_embedding = self.geo_embedding(coordinates)  # (B, geo_embedding_dim)
+        # 2. 평균 풀링: (B, T', hidden_dim) -> (B, hidden_dim)
+        if attention_mask is not None:
+            feature_attention_mask = self.wav2vec2._get_feature_vector_attention_mask(
+                audio_features.shape[1],
+                attention_mask,
+                add_adapter=False
+            )
+            mask_expanded = feature_attention_mask.unsqueeze(-1)
+            sum_features = torch.sum(audio_features * mask_expanded, dim=1)
+            sum_mask = torch.sum(mask_expanded, dim=1).clamp(min=1e-9)
+            audio_features_pooled = sum_features / sum_mask
+        else:
+            audio_features_pooled = audio_features.mean(dim=1)
         
-        # 3. Attention Fusion
-        fused_features = self.attention_fusion(
-            audio_features, 
+        # 3. Geographic Embedding
+        geo_embedding = self.geo_embedding(coordinates)
+        
+        # 4. Attention Fusion
+        fused_features, attention_weights = self.attention_fusion(
+            audio_features_pooled,
             geo_embedding
-        )  # (B, fusion_dim)
+        )
         
-        # 4. Classification
-        region_logits = self.region_classifier(fused_features)  # (B, num_regions)
-        gender_logits = self.gender_classifier(fused_features)  # (B, num_genders)
+        # 5. Classification
+        region_logits = self.region_classifier(fused_features)
+        gender_logits = self.gender_classifier(fused_features)
         
-        # 5. Predict Region Embedding (for distance loss)
+        # 6. Predict Region Embedding
         predicted_geo_emb = self.region_embedding_predictor(fused_features)
         
         return {
             'region_logits': region_logits,
             'gender_logits': gender_logits,
             'predicted_geo_embedding': predicted_geo_emb,
-            'true_geo_embedding': geo_embedding
+            'true_geo_embedding': geo_embedding,
+            'attention_weights': attention_weights
+        }
+    
+    def get_config(self):
+        """
+        모델 설정 반환 (체크포인트 저장/로드용)
+        """
+        return {
+            'model_name': self.model_name,
+            'num_regions': self.num_regions,
+            'num_genders': self.num_genders,
+            'hidden_dim': self.hidden_dim,
+            'geo_embedding_dim': self.geo_embedding_dim,
+            'fusion_dim': self.fusion_dim,
+            'dropout': self.dropout,
+            'num_frozen_layers': self.num_frozen_layers
         }

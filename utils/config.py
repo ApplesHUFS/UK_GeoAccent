@@ -188,8 +188,8 @@ class GeoAccentConfig:
     # Loss Configuration
     # ========================================================================
     region_weight: float = 1.0
-    gender_weight: float = 0.3
-    distance_weight: float = 0.5
+    gender_weight: float = 0.1
+    distance_weight: float = 0.05
     
     # ========================================================================
     # Training Configuration (RTX 4090 24GB Optimized)

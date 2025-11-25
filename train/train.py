@@ -1,15 +1,9 @@
-"""
-train/train.py
-훈련 실행 스크립트
-"""
-
 import torch
 from torch.utils.data import DataLoader
 import argparse
 import json
 import os
 
-# 수정된 import
 from models import GeoAccentClassifier, MultiTaskLossWithDistance
 from train.trainer import AccentTrainer
 from data import EnglishDialectsDataset, collate_fn
@@ -53,6 +47,8 @@ def parse_args():
     parser.add_argument('--log_dir', type=str, default='./logs')
     parser.add_argument('--save_steps', type=int, default=500)
     parser.add_argument('--eval_steps', type=int, default=500)
+    parser.add_argument('--resume', type=str, default=None,
+                       help='Path to checkpoint to resume from (e.g., checkpoints/last.pt)')
     
     # Early stopping
     parser.add_argument('--early_stopping_patience', type=int, default=5)
@@ -162,13 +158,19 @@ def train_model(args):
         use_wandb=args.use_wandb
     )
     
-    # 6. 훈련 시작
-    print("\n6. Starting training...")
+    # 6. Resume from checkpoint if specified
+    if args.resume:
+        print(f"\n6. Resuming from checkpoint: {args.resume}")
+        trainer.load_checkpoint(args.resume)
+    
+    # 7. 훈련 시작
+    print("\n7. Starting training...")
     print("=" * 50)
     trainer.train()
     
     print("\n" + "=" * 50)
     print("Training completed!")
+    print(f"Best validation accuracy: {trainer.best_accuracy:.4f}")
     print("=" * 50)
 
 

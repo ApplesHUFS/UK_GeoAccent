@@ -225,6 +225,14 @@ def main():
         help='검증 주기 (steps)'
     )
 
+    # Resume training - 새로 추가!
+    train_parser.add_argument(
+        '--resume',
+        type=str,
+        default=None,
+        help='체크포인트 경로 (학습 재개용, 예: checkpoints/last.pt)'
+    )
+
     # Early stopping
     train_parser.add_argument(
         '--early_stopping_patience',
@@ -320,10 +328,10 @@ def main():
         from preprocess import split_dataset
 
         configs = [
-        'irish_male', 'midlands_female', 'midlands_male', 'northern_female',
-        'northern_male', 'scottish_female', 'scottish_male',
-        'southern_female', 'southern_male', 'welsh_female', 'welsh_male'
-    ]
+            'irish_male', 'midlands_female', 'midlands_male', 'northern_female',
+            'northern_male', 'scottish_female', 'scottish_male',
+            'southern_female', 'southern_male', 'welsh_female', 'welsh_male'
+        ]
         split_dataset(
             dataset_name=args.dataset_name,
             configs=configs, 

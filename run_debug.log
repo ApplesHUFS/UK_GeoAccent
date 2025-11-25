@@ -1,0 +1,32 @@
+==================================================
+GeoAccent Classifier Training
+==================================================
+
+1. Loading datasets...
+✅ Loaded train split: 14301 samples
+✅ Loaded validation split: 1788 samples
+   Train samples: 14301
+   Validation samples: 1788
+
+2. Creating DataLoaders...
+
+3. Creating model...
+Loading pretrained model: hf-internal-testing/tiny-random-wav2vec2
+Some weights of Wav2Vec2Model were not initialized from the model checkpoint at hf-internal-testing/tiny-random-wav2vec2 and are newly initialized: ['feature_extractor.conv_layers.1.layer_norm.bias', 'feature_extractor.conv_layers.1.layer_norm.weight', 'feature_extractor.conv_layers.2.layer_norm.bias', 'feature_extractor.conv_layers.2.layer_norm.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Freezing lower 16 encoder layers
+   Model loaded on cpu
+
+4. Creating loss function...
+
+5. Creating trainer...
+
+7. Starting training...
+==================================================
+
+🚀 Starting training...
+   Start epoch: 0
+   Total epochs: 1
+   Global step: 0
+Epoch 0/1:   0%|          | 0/14301 [00:00<?, ?it/s]terminate called after throwing an instance of 'std::bad_alloc'
+  what():  std::bad_alloc
