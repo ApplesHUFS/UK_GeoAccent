@@ -1,5 +1,5 @@
 """
-losses.py
+models/losses.py
 Multi-task loss with distance regularization
 """
 
@@ -11,15 +11,15 @@ class MultiTaskLossWithDistance(nn.Module):
     """
     Combined loss function:
     1. Cross-entropy for region classification
-    2. Cross-entropy for gender classification (aux)
-    3. Cosine distance loss: 예측된 지역 임베딩 <-> 실제 지역 임베딩
+    2. Cross-entropy for gender classification (auxiliary)
+    3. Cosine distance loss: predicted region embedding vs. true region embedding
     """
     
     def __init__(
         self,
         region_weight=1.0,
-        gender_weight=0.3,
-        distance_weight=0.5
+        gender_weight=0.1,
+        distance_weight=0.05
     ):
         super().__init__()
         
@@ -32,40 +32,33 @@ class MultiTaskLossWithDistance(nn.Module):
         self.distance_criterion = nn.CosineEmbeddingLoss()
     
     def forward(self, outputs, region_labels, gender_labels):
-        # Basic sanity checks to help catch label/logit mismatches that can
-        # silently lead to zero/invalid losses during training.
+        # Sanity checks
         if outputs.get('region_logits') is None:
             raise ValueError('Missing region_logits in model outputs')
         if outputs.get('gender_logits') is None:
             raise ValueError('Missing gender_logits in model outputs')
 
-        # shapes
         if outputs['region_logits'].dim() != 2:
-            raise ValueError(f"region_logits must be 2D tensor (B, C), got {outputs['region_logits'].shape}")
+            raise ValueError(f"region_logits must be 2D (B, C), got {outputs['region_logits'].shape}")
         if region_labels.dim() != 1:
-            raise ValueError(f"region_labels must be 1D tensor (B,), got {region_labels.shape}")
+            raise ValueError(f"region_labels must be 1D (B,), got {region_labels.shape}")
         if outputs['region_logits'].size(0) != region_labels.size(0):
             raise ValueError(f"Batch size mismatch between region_logits {outputs['region_logits'].size(0)} and region_labels {region_labels.size(0)}")
+        
         # 1. Region classification loss
-        region_loss = self.region_criterion(
-            outputs['region_logits'],
-            region_labels
-        )
+        region_loss = self.region_criterion(outputs['region_logits'], region_labels)
         
         # 2. Gender classification loss
-        gender_loss = self.gender_criterion(
-            outputs['gender_logits'],
-            gender_labels
-        )
+        gender_loss = self.gender_criterion(outputs['gender_logits'], gender_labels)
         
         # 3. Cosine distance loss
-        if outputs['true_geo_embedding'] is not None:  # ✅ 수정
+        if outputs['true_geo_embedding'] is not None:
             predicted_geo = outputs['predicted_geo_embedding']
-            actual_geo = outputs['true_geo_embedding']  # ✅ 수정
-            target = torch.ones(predicted_geo.size(0)).to(predicted_geo.device)
+            actual_geo = outputs['true_geo_embedding']
+            target = torch.ones(predicted_geo.size(0), device=predicted_geo.device)
             distance_loss = self.distance_criterion(predicted_geo, actual_geo, target)
         else:
-            distance_loss = torch.tensor(0.0).to(outputs['region_logits'].device)
+            distance_loss = torch.tensor(0.0, device=outputs['region_logits'].device)
         
         # Total loss
         total_loss = (
@@ -74,7 +67,7 @@ class MultiTaskLossWithDistance(nn.Module):
             self.distance_weight * distance_loss
         )
 
-        # Final sanity: ensure tensor dtype and device stay consistent
+        # Ensure tensor type and device
         if not torch.is_tensor(total_loss):
             total_loss = torch.tensor(float(total_loss), device=outputs['region_logits'].device)
 

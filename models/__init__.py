@@ -1,6 +1,6 @@
 """
 models/__init__.py
-모델 모듈
+Model module
 """
 
 from .embeddings import GeoEmbedding, AttentionFusion
@@ -11,5 +11,4 @@ __all__ = [
     'GeoEmbedding',
     'AttentionFusion',
     'GeoAccentClassifier',
-    'MultiTaskLossWithDistance'
-]
+    'MultiTaskLossWi

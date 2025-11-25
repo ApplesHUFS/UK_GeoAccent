@@ -1,3 +1,7 @@
+"""
+models/classifier.py
+GeoAccentClassifier model
+"""
 import os
 import torch
 import torch.nn as nn
@@ -8,16 +12,9 @@ from .embeddings import GeoEmbedding, AttentionFusion
 
 class GeoAccentClassifier(nn.Module):
     """
-    Wav2Vec2 XLSR-53 모델 기반 지역 억양 분류기
-    
-    아키텍처 구조:
-    1. Feature Encoder: Wav2Vec2-XLSR-53
-    2. Region Embedding: (lat, lon) -> dense vector
-    3. Attention Fusion: Audio x Geography
-    4. Classification Heads: Region / Gender
-    5. Distance Loss: 예측 지역 임베딩 vs 실제 임베딩 거리
+    Wav2Vec2 XLSR-53 based regional accent classifier.
     """
-    
+
     def __init__(
         self,
         model_name="facebook/wav2vec2-large-xlsr-53",
@@ -32,7 +29,7 @@ class GeoAccentClassifier(nn.Module):
     ):
         super().__init__()
         
-        # 설정값 저장 (체크포인트용)
+        # Save configuration
         self.model_name = model_name
         self.num_regions = num_regions
         self.num_genders = num_genders
@@ -42,20 +39,20 @@ class GeoAccentClassifier(nn.Module):
         self.dropout = dropout
         self.num_frozen_layers = num_frozen_layers
         
-        # 1. Feature Encoder
+        # Audio feature encoder
         print(f'Loading pretrained model: {model_name}')
         self.wav2vec2 = Wav2Vec2Model.from_pretrained(model_name)
         
         if freeze_lower_layers:
             self._freeze_lower_encoder_layers(num_frozen_layers)
         
-        # 2. Geographic Embedding
+        # Geographic embedding
         self.geo_embedding = GeoEmbedding(
             embedding_dim=geo_embedding_dim,
             dropout=dropout
         )
         
-        # 3. Attention Fusion
+        # Attention-based fusion
         self.attention_fusion = AttentionFusion(
             audio_dim=hidden_dim,
             geo_dim=geo_embedding_dim,
@@ -63,7 +60,7 @@ class GeoAccentClassifier(nn.Module):
             dropout=dropout
         )
         
-        # 4. Classification Heads
+        # Classification heads
         self.region_classifier = nn.Sequential(
             nn.Linear(hidden_dim, 256),
             nn.ReLU(),
@@ -78,7 +75,7 @@ class GeoAccentClassifier(nn.Module):
             nn.Linear(128, num_genders)
         )
         
-        # 5. Region Embedding Predictor (for distance loss)
+        # Region embedding predictor
         self.region_embedding_predictor = nn.Sequential(
             nn.Linear(hidden_dim, 256),
             nn.ReLU(),
@@ -97,9 +94,9 @@ class GeoAccentClassifier(nn.Module):
     def forward(self, input_values, attention_mask, coordinates):
         """
         Args:
-            input_values: (B, T) 오디오 waveform
-            attention_mask: (B, T) 실제 오디오 구간 마스크
-            coordinates: (B, 2) 정규화된 (lat, lon)
+            input_values: (B, T) audio waveform
+            attention_mask: (B, T) mask for valid audio frames
+            coordinates: (B, 2) normalized (lat, lon)
         
         Returns:
             dict: {
@@ -110,14 +107,14 @@ class GeoAccentClassifier(nn.Module):
                 'attention_weights': (B, 1)
             }
         """
-        # 1. Audio Feature Extraction
+        # Audio feature extraction
         wav2vec_out = self.wav2vec2(
             input_values=input_values,
             attention_mask=attention_mask
         )
-        audio_features = wav2vec_out.last_hidden_state  # (B, T', hidden_dim)
+        audio_features = wav2vec_out.last_hidden_state
         
-        # 2. 평균 풀링: (B, T', hidden_dim) -> (B, hidden_dim)
+        # Mean pooling
         if attention_mask is not None:
             feature_attention_mask = self.wav2vec2._get_feature_vector_attention_mask(
                 audio_features.shape[1],
@@ -131,20 +128,20 @@ class GeoAccentClassifier(nn.Module):
         else:
             audio_features_pooled = audio_features.mean(dim=1)
         
-        # 3. Geographic Embedding
+        # Geographic embedding
         geo_embedding = self.geo_embedding(coordinates)
         
-        # 4. Attention Fusion
+        # Attention fusion
         fused_features, attention_weights = self.attention_fusion(
             audio_features_pooled,
             geo_embedding
         )
         
-        # 5. Classification
+        # Classification
         region_logits = self.region_classifier(fused_features)
         gender_logits = self.gender_classifier(fused_features)
         
-        # 6. Predict Region Embedding
+        # Predict region embedding
         predicted_geo_emb = self.region_embedding_predictor(fused_features)
         
         return {
@@ -156,9 +153,7 @@ class GeoAccentClassifier(nn.Module):
         }
     
     def get_config(self):
-        """
-        모델 설정 반환 (체크포인트 저장/로드용)
-        """
+        """Return model configuration for checkpointing"""
         return {
             'model_name': self.model_name,
             'num_regions': self.num_regions,
