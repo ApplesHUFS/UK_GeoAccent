@@ -2,10 +2,8 @@
 main.py
 GeoAccent 프로젝트 메인 실행 파일
 """
-
 import argparse
 import sys
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -19,36 +17,42 @@ def main():
         'preprocess',
         help='데이터셋을 train/validation/test로 분할'
     )
+    
     preprocess_parser.add_argument(
         '--dataset_name',
         type=str,
         default='ylacombe/english_dialects',
         help='HuggingFace 데이터셋 이름'
     )
+    
     preprocess_parser.add_argument(
         '--save_dir',
         type=str,
         default='./data/english_dialects',
         help='저장할 디렉토리'
     )
+    
     preprocess_parser.add_argument(
         '--train_ratio',
         type=float,
         default=0.7,
         help='훈련 데이터 비율'
     )
+    
     preprocess_parser.add_argument(
         '--val_ratio',
         type=float,
         default=0.15,
         help='검증 데이터 비율'
     )
+    
     preprocess_parser.add_argument(
         '--test_ratio',
         type=float,
         default=0.15,
         help='테스트 데이터 비율'
     )
+    
     preprocess_parser.add_argument(
         '--seed',
         type=int,
@@ -61,35 +65,41 @@ def main():
         'train',
         help='모델 훈련'
     )
+    
     train_parser.add_argument(
         '--config',
         type=str,
         default=None,
         help='설정 파일 경로 (JSON)'
     )
+    
     train_parser.add_argument(
         '--batch_size',
         type=int,
         default=4,
         help='배치 크기'
     )
+    
     train_parser.add_argument(
         '--num_epochs',
         type=int,
         default=25,
         help='에포크 수'
     )
+    
     train_parser.add_argument(
         '--learning_rate',
         type=float,
         default=1e-5,
         help='학습률'
     )
+    
     train_parser.add_argument(
         '--use_augment',
         action='store_true',
         help='Augmentation 사용 여부'
     )
+    
     train_parser.add_argument(
         '--checkpoint_dir',
         type=str,
@@ -102,12 +112,14 @@ def main():
         'evaluate',
         help='모델 평가'
     )
+    
     eval_parser.add_argument(
         '--checkpoint',
         type=str,
         required=True,
         help='평가할 체크포인트 경로'
     )
+    
     eval_parser.add_argument(
         '--split',
         type=str,
@@ -115,12 +127,14 @@ def main():
         choices=['validation', 'test'],
         help='평가할 데이터 split'
     )
+    
     eval_parser.add_argument(
         '--batch_size',
         type=int,
         default=8,
         help='배치 크기'
     )
+    
     eval_parser.add_argument(
         '--output_dir',
         type=str,
@@ -132,7 +146,7 @@ def main():
     
     # Command 실행
     if args.command == 'preprocess':
-        from preprocessing import split_dataset
+        from preprocess import split_dataset
         split_dataset(
             dataset_name=args.dataset_name,
             save_dir=args.save_dir,
@@ -141,19 +155,18 @@ def main():
             test_ratio=args.test_ratio,
             random_seed=args.seed
         )
-    
+        
     elif args.command == 'train':
         from train.train import train_model
         train_model(args)
-    
+        
     elif args.command == 'evaluate':
         from evaluation.evaluate import evaluate_model
         evaluate_model(args)
-    
+        
     else:
         parser.print_help()
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
