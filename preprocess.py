@@ -1,3 +1,8 @@
+"""
+preprocess.py
+Split dataset into train/validation/test sets
+"""
+
 import shutil
 import os
 from datasets import load_dataset, concatenate_datasets
@@ -11,56 +16,54 @@ def split_dataset(
     test_ratio=0.1,
     random_seed=42
 ):
-    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-5, "비율 합이 1.0이어야 함"
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-5, "The sum of ratios must be 1.0"
 
-    # 저장 경로 초기화 (선택사항: 기존 폴더 있으면 삭제 후 재생성 방지하거나 경고)
+    # Initialize save directory (optional: create if not exists)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    # (1) config별로 불러와서 라벨 달고 통합
+    # (1) Load datasets for each config, add label, and combine
     all_datasets = []
     for config in configs:
         try:
-            print(f"[{config}] 데이터셋 로딩 중...")
-            # 데이터 로드
+            print(f"[{config}] Loading dataset...")
+            # Load dataset
             ds = load_dataset(dataset_name, config, split="train")
             
+            # Add column with config name
             ds = ds.add_column("config_name", [config] * len(ds))
             
-            # (선택) 불필요한 컬럼 제거하여 용량 줄이기 (오디오와 라벨만 남김)
-            # 텍스트가 필요 없다면 주석 해제하여 사용하세요.
+            # Optional: remove unnecessary columns to reduce size (keep only audio and label)
             # keep_cols = ['audio', 'config_name']
             # ds = ds.remove_columns([c for c in ds.column_names if c not in keep_cols])
 
             all_datasets.append(ds)
-            print(f"   -> {len(ds)}개 로드 완료")
+            print(f"   -> Loaded {len(ds)} samples")
             
         except Exception as e:
-            print(f"❌ [{config}] 로드 실패: {e}")
+            print(f"❌ Failed to load [{config}]: {e}")
 
-    # 데이터 병합
+    # Merge datasets
     full_dataset = concatenate_datasets(all_datasets)
-    print(f"\n총 데이터 개수: {len(full_dataset)}")
+    print(f"\nTotal number of samples: {len(full_dataset)}")
 
-    # (2) Train split (Train vs Temp)
-    # 80% Train, 20% Temp (Val+Test)
+    # (2) Split Train vs Temp (Train: 80%, Temp: 20% for Val+Test)
     split_temp = full_dataset.train_test_split(
         test_size=1-train_ratio, seed=random_seed, shuffle=True
     )
     train_ds = split_temp['train']
     rest_ds = split_temp['test']
     
-    print(f"Train: {len(train_ds)}개 저장 중...")
+    print(f"Saving {len(train_ds)} training samples...")
     train_ds.save_to_disk(f"{save_dir}/train")
 
-    # 메모리 정리
+    # Clean up memory
     del train_ds
     import gc; gc.collect()
 
-    # (3) Validation/Test split (Temp를 반으로 나눔)
-    # 남은 20% 중에서 Val:Test 비율 계산
+    # (3) Split Temp into Validation/Test according to ratio
     remaining_ratio = val_ratio + test_ratio
-    test_size_real = test_ratio / remaining_ratio  # 0.1 / 0.2 = 0.5
+    test_size_real = test_ratio / remaining_ratio  # e.g., 0.1 / 0.2 = 0.5
 
     split_temp2 = rest_ds.train_test_split(
         test_size=test_size_real, seed=random_seed, shuffle=True
@@ -69,16 +72,16 @@ def split_dataset(
     val_ds = split_temp2['train']
     test_ds = split_temp2['test']
 
-    print(f"Validation: {len(val_ds)}개 저장 중...")
+    print(f"Saving {len(val_ds)} validation samples...")
     val_ds.save_to_disk(f"{save_dir}/validation")
     
-    print(f"Test: {len(test_ds)}개 저장 중...")
+    print(f"Saving {len(test_ds)} test samples...")
     test_ds.save_to_disk(f"{save_dir}/test")
 
-    # 캐시 삭제 (필요한 경우에만 주석 해제하여 사용)
+    # Clear cache if needed
     # shutil.rmtree("/root/.cache/huggingface/datasets", ignore_errors=True)
 
-    print("\n✅ 전처리 완료: config_name 컬럼이 포함된 데이터셋이 저장되었습니다.")
+    print("\n✅ Preprocessing completed: dataset with 'config_name' column has been saved.")
 
 
 if __name__ == "__main__":
@@ -95,7 +98,7 @@ if __name__ == "__main__":
         dataset_name="ylacombe/english_dialects",
         configs=configs,
         save_dir="./data/english_dialects",
-        train_ratio=0.8,  # 비율 조정 (일반적으로 8:1:1 많이 사용)
+        train_ratio=0.8,  # Commonly used 8:1:1 split
         val_ratio=0.1,
         test_ratio=0.1,
         random_seed=42
