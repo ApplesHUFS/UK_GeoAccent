@@ -213,3 +213,42 @@ if __name__ == "__main__":
     # 전체 메트릭 계산
     all_metrics = calculate_all_metrics(y_true, y_pred, class_names)
     print("\nAll Metrics:", all_metrics)
+
+class AccentMetrics:
+    """Stateless wrapper for accent metric calculations."""
+
+    @staticmethod
+    def accuracy(y_true, y_pred):
+        return calculate_accuracy(y_true, y_pred)
+
+    @staticmethod
+    def f1_macro(y_true, y_pred):
+        return calculate_f1_macro(y_true, y_pred)
+
+    @staticmethod
+    def f1_weighted(y_true, y_pred):
+        return calculate_f1_weighted(y_true, y_pred)
+
+    @staticmethod
+    def per_class_accuracy(y_true, y_pred, class_names=None):
+        return calculate_per_class_accuracy(y_true, y_pred, class_names)
+
+    @staticmethod
+    def per_class_f1(y_true, y_pred, class_names=None):
+        return calculate_per_class_f1(y_true, y_pred, class_names)
+
+    @staticmethod
+    def precision_recall(y_true, y_pred, average='macro'):
+        return calculate_precision_recall(y_true, y_pred, average)
+
+    @staticmethod
+    def confusion_matrix(y_true, y_pred):
+        return get_confusion_matrix(y_true, y_pred)
+
+    @staticmethod
+    def classification_report(y_true, y_pred, class_names=None, output_dict=False):
+        return get_classification_report(y_true, y_pred, class_names, output_dict)
+
+    @staticmethod
+    def all_metrics(y_true, y_pred, class_names=None):
+        return calculate_all_metrics(y_true, y_pred, class_names)
