@@ -24,6 +24,15 @@ REGION_COORDS = {
 LAT_MIN, LAT_MAX = 51.4, 55.9
 LON_MIN, LON_MAX = -6.3, -0.1
 
+REGION_CLASS_WEIGHTS = {
+    "irish": 39.733,
+    "midlands": 25.689,
+    "northern": 6.274,
+    "scottish": 7.028,
+    "southern": 2.106,
+    "welsh": 6.274
+}
+
 def normalize_coords(lat: float, lon: float) -> Tuple[float, float]:
     norm_lat = 2 * (lat - LAT_MIN) / (LAT_MAX - LAT_MIN) - 1
     norm_lon = 2 * (lon - LON_MIN) / (LON_MAX - LON_MIN) - 1
@@ -43,7 +52,7 @@ class GeoAccentConfig:
     geo_embedding_dim: int = 256
     fusion_dim: int = 512
     dropout: float = 0.1
-    use_fusion: bool = True
+    use_fusion:bool = False
 
     # Fine-tuning
     freeze_lower_layers: bool = True
@@ -52,9 +61,10 @@ class GeoAccentConfig:
     # Loss Weights
     region_weight: float = 1.0
     gender_weight: float = 0.1
-    distance_weight: float = 0.05
+    distance_weight: float = 0.05 
 
     # Training
+    use_augment: bool = False     
     batch_size: int = 8
     eval_batch_size: int = 12
     gradient_accumulation_steps: int = 2
@@ -69,7 +79,7 @@ class GeoAccentConfig:
     warmup_steps: int = 500
 
     # Early Stopping
-    early_stopping_patience: int = 5
+    early_stopping_patience: int = 8
     min_delta: float = 0.001
 
     # Data

@@ -18,14 +18,23 @@ from sklearn.metrics import (
 from sklearn.metrics.pairwise import cosine_similarity
 
 from data.dataset import EnglishDialectsDataset, collate_fn
-from models.model import GeoAccentClassifier
+from models.classifier import GeoAccentClassifier
 from utils.config import REGION_LABELS, GENDER_LABELS
 
 
 class ModelEvaluator:
     def __init__(self, args):
         self.args = args
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if args.device == 'cuda' and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif args.device == 'cuda' and not torch.cuda.is_available():
+            print("⚠️ CUDA requested but not available. Switching to CPU.")
+            self.device = torch.device("cpu")
+        else:
+            self.device = torch.device("cpu")
+            
+        print(f"Evaluation will run on {self.device}")
 
         # 1. Dataset and DataLoader setup
         print("1. Loading test dataset...")
@@ -41,17 +50,16 @@ class ModelEvaluator:
             self.test_dataset,
             batch_size=args.batch_size,
             shuffle=False,
-            num_workers=0,     
+            num_workers=4,     
             collate_fn=collate_fn,
-            pin_memory=False    
+            pin_memory=True  
         )
 
         # 2. Model setup
         print("\n3. Loading model and checkpoint...")
-        # Note: Model loading assumes GeoAccentClassifier supports a checkpoint path
         self.model = GeoAccentClassifier(
-            num_region_classes=len(REGION_LABELS),
-            num_gender_classes=len(GENDER_LABELS)
+            num_regions=len(REGION_LABELS),
+            num_genders=len(GENDER_LABELS)
         ).to(self.device)
         
         # Checkpoint loading
@@ -78,12 +86,21 @@ class ModelEvaluator:
                 
                 input_values = batch["input_values"].to(self.device)
                 attention_mask = batch["attention_mask"].to(self.device)
+                coordinates = batch["coords"].to(self.device)
+                
+                # ✅ use_fusion 여부에 따라 coordinates 전달
+                input_coords = coordinates if self.model.use_fusion else None
                 
                 # Forward pass
-                region_logits, gender_logits, coords_pred = self.model(
+                model_output = self.model(
                     input_values=input_values,
-                    attention_mask=attention_mask
+                    attention_mask=attention_mask,
+                    coordinates=input_coords
                 )
+
+                region_logits = model_output['region_logits']
+                gender_logits = model_output['gender_logits']
+                coords_pred = model_output['predicted_geo_embedding']
                 
                 # --- Region Classification ---
                 region_pred = torch.argmax(region_logits, dim=-1)
@@ -97,17 +114,24 @@ class ModelEvaluator:
                 all_gender_predictions.extend(gender_pred.cpu().tolist())
                 all_gender_labels.extend(batch["gender_labels"].cpu().tolist())
                 
-                # --- Coordinate Regression ---
-                all_coords_pred.append(coords_pred.cpu().numpy())
-                all_coords_true.append(batch["coords"].cpu().numpy())
+                # --- Coordinate Regression (use_fusion=True일 때만) ---
+                if coords_pred is not None:
+                    all_coords_pred.append(coords_pred.cpu().numpy())
+                    all_coords_true.append(batch["coords"].cpu().numpy())
 
         # -----------------------------------------------------------
         # 4. Results Aggregation and Metrics Calculation
         # -----------------------------------------------------------
         
-        # Concatenate coordinate arrays
-        coords_true = np.concatenate(all_coords_true, axis=0)
-        coords_pred = np.concatenate(all_coords_pred, axis=0)
+        # ✅ use_fusion=False면 coordinate metrics 계산 생략
+        if len(all_coords_pred) > 0:
+            coords_true = np.concatenate(all_coords_true, axis=0)
+            coords_pred = np.concatenate(all_coords_pred, axis=0)
+            avg_cosine_similarity = np.mean(
+                cosine_similarity(coords_true, coords_pred)
+            )
+        else:
+            avg_cosine_similarity = None
 
         # --- REGION METRICS ---
         region_acc = accuracy_score(all_region_labels, all_region_predictions)
@@ -118,13 +142,7 @@ class ModelEvaluator:
         
         # --- GENDER METRICS ---
         gender_acc = accuracy_score(all_gender_labels, all_gender_predictions)
-        gender_f1 = f1_score(all_gender_labels, all_gender_predictions, average='binary', pos_label=1) # Assume 0/1 binary
-
-        # --- COORDINATE METRICS (Cosine Similarity) ---
-        # Reshape for cosine_similarity: (n_samples, n_features)
-        avg_cosine_similarity = np.mean(
-            cosine_similarity(coords_true, coords_pred)
-        )
+        gender_f1 = f1_score(all_gender_labels, all_gender_predictions, average='binary', pos_label=1)
 
         # --- PER-CLASS ACCURACY ---
         per_class_accuracy = {}
@@ -151,6 +169,7 @@ class ModelEvaluator:
             "per_class_accuracy": per_class_accuracy,
             "avg_cosine_similarity": avg_cosine_similarity
         }
+        
         class_names = list(REGION_LABELS.keys()) 
         labels_indices = np.arange(len(class_names))
 
@@ -170,8 +189,6 @@ class ModelEvaluator:
         print(conf_df)
 
         # 2. Normalized Confusion Matrix (정확도 비율)
-        # 행(row) 방향으로 정규화: 실제 레이블(True Label)을 기준으로 오분류 비율 계산
-        # (각 행의 합은 1.0)
         conf_matrix_norm = conf_matrix.astype('float') / conf_matrix.sum(axis=1)[:, np.newaxis]
         
         print("\n[2] Normalized Confusion Matrix (Accuracy % by True Label):")
@@ -179,6 +196,7 @@ class ModelEvaluator:
         print(conf_df_norm.round(4)) 
 
         return results
+
 
 def evaluate_model(args):
     """
@@ -204,13 +222,12 @@ def evaluate_model(args):
 
 
 if __name__ == "__main__":
-    # --- Argument Parsing (Placeholder) ---
     parser = argparse.ArgumentParser()
     parser.add_argument('--checkpoint', type=str, required=True, help="Path to the model checkpoint (.pt)")
     parser.add_argument('--split', type=str, default='test', choices=['train', 'validation', 'test'], help="Dataset split to evaluate")
     parser.add_argument('--output_dir', type=str, default='./results/evaluation', help="Directory to save output metrics")
     parser.add_argument('--batch_size', type=int, default=16, help="Batch size for evaluation")
-    # ---------------------------------------
+    parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], help='Evaluation device (cuda/cpu)')
 
     args = parser.parse_args()
     evaluate_model(args)

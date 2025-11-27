@@ -24,11 +24,11 @@ def main():
                                    default='./data/english_dialects',
                                    help='Directory to save split datasets')
     preprocess_parser.add_argument('--train_ratio', type=float,
-                                   default=0.7, help='Training data ratio')
+                                   default=0.8, help='Training data ratio')
     preprocess_parser.add_argument('--val_ratio', type=float,
-                                   default=0.15, help='Validation data ratio')
+                                   default=0.1, help='Validation data ratio')
     preprocess_parser.add_argument('--test_ratio', type=float,
-                                   default=0.15, help='Test data ratio')
+                                   default=0.1, help='Test data ratio')
     preprocess_parser.add_argument('--seed', type=int,
                                    default=42, help='Random seed')
 
@@ -46,25 +46,25 @@ def main():
     train_parser.add_argument('--dropout', type=float,
                               default=0.1, help='Dropout rate')
     train_parser.add_argument('--use_fusion', action='store_true',
-                              default=True, help='Use GeoEmbedding Fusion Module')
+                              default=False, help='Use GeoEmbedding Fusion Module')
 
     train_parser.add_argument('--batch_size', type=int,
-                              default=4, help='Batch size')
+                              default=8, help='Batch size')
     train_parser.add_argument('--gradient_accumulation_steps', type=int,
-                              default=4, help='Number of gradient accumulation steps')
+                              default=2, help='Number of gradient accumulation steps')
     train_parser.add_argument('--learning_rate', type=float,
-                              default=1e-5, help='Learning rate')
+                              default=1e-4, help='Learning rate')
     train_parser.add_argument('--num_epochs', type=int,
-                              default=25, help='Number of epochs')
+                              default=40, help='Number of epochs')
     train_parser.add_argument('--num_workers', type=int,
                               default=4, help='Number of DataLoader workers')
 
     train_parser.add_argument('--region_weight', type=float,
                               default=1.0, help='Region classification loss weight')
     train_parser.add_argument('--gender_weight', type=float,
-                              default=0.3, help='Gender classification loss weight')
+                              default=0.1, help='Gender classification loss weight')
     train_parser.add_argument('--distance_weight', type=float,
-                              default=0.5, help='Distance regularization loss weight')
+                              default=0.05, help='Distance regularization loss weight')
 
     train_parser.add_argument('--use_amp', action='store_true',
                               default=True, help='Use mixed precision')
@@ -92,7 +92,7 @@ def main():
                               help='Path to checkpoint for resuming training')
 
     train_parser.add_argument('--early_stopping_patience', type=int,
-                              default=5, help='Early stopping patience')
+                              default=8, help='Early stopping patience')
     train_parser.add_argument('--min_delta', type=float,
                               default=0.001, help='Minimum improvement for progress')
 
@@ -121,6 +121,8 @@ def main():
                              default=8, help='Batch size for evaluation')
     eval_parser.add_argument('--output_dir', type=str,
                              default='./results', help='Directory to save results')
+    eval_parser.add_argument('--device', type=str,
+                             default='cuda', choices=['cuda', 'cpu'])
 
     args = parser.parse_args()
 

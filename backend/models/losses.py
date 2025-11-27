@@ -5,6 +5,7 @@ Multi-task loss with distance regularization
 
 import torch
 import torch.nn as nn
+from utils.config import REGION_LABELS, REGION_CLASS_WEIGHTS
 
 
 class MultiTaskLossWithDistance(nn.Module):
@@ -19,15 +20,23 @@ class MultiTaskLossWithDistance(nn.Module):
         self,
         region_weight=1.0,
         gender_weight=0.1,
-        distance_weight=0.05
+        distance_weight=0.05,
+        device: str = "cpu"
     ):
         super().__init__()
         
         self.region_weight = region_weight
         self.gender_weight = gender_weight
         self.distance_weight = distance_weight
+        self.device = device
+
+        region_labels_list = list(REGION_LABELS.keys())
+        class_weights_list = [REGION_CLASS_WEIGHTS[label] for label in region_labels_list]
+
+        class_weights_tensor = torch.tensor(class_weights_list, dtype=torch.float,device=self.device)
         
-        self.region_criterion = nn.CrossEntropyLoss()
+        self.region_criterion = nn.CrossEntropyLoss() #weight=class_weights_tensor
+        
         self.gender_criterion = nn.CrossEntropyLoss()
         self.distance_criterion = nn.CosineEmbeddingLoss()
     
@@ -47,7 +56,6 @@ class MultiTaskLossWithDistance(nn.Module):
         
         # 1. Region classification loss
         region_loss = self.region_criterion(outputs['region_logits'], region_labels)
-        
         # 2. Gender classification loss
         gender_loss = self.gender_criterion(outputs['gender_logits'], gender_labels)
         

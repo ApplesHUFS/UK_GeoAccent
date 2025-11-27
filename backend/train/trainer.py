@@ -42,13 +42,13 @@ class AccentTrainer:
         val_loader,
         region_coords,
         device='cuda',
-        learning_rate=1e-5,
-        num_epochs=25,
-        gradient_accumulation_steps=4,
+        learning_rate=5e-6,
+        num_epochs=40,
+        gradient_accumulation_steps=2,
         use_amp=True,
         max_grad_norm=1.0,
         warmup_steps=500,
-        early_stopping_patience=5,
+        early_stopping_patience=8,
         min_delta=0.001,
         save_steps=500,
         eval_steps=500,
@@ -186,33 +186,37 @@ class AccentTrainer:
         self.model.train()
         epoch_loss = 0.0
         pbar = tqdm(self.train_loader, desc=f'Epoch {epoch}/{self.num_epochs}')
-
+        
         for batch_idx, batch in enumerate(pbar):
-            # [최종 수정] self.device 제거 (torch.cuda.amp.autocast는 device 인자를 받지 않음)
             if self.use_amp:
-                amp_context = autocast(dtype=self.amp_dtype) 
+                amp_context = autocast(dtype=self.amp_dtype)
             else:
                 amp_context = contextlib.nullcontext()
 
-            with amp_context: 
+            with amp_context:
+                # use_fusion 여부에 따라 coordinates 전달 결정
                 coords = batch['coords'].to(self.device)
-                coords_zero = torch.zeros_like(coords)
+
+                # use_fusion=True면 실제 좌표, False면 None
+                input_coords = coords if self.model.use_fusion else None
+
                 outputs = self.model(
                     input_values=batch['input_values'].to(self.device),
                     attention_mask=batch['attention_mask'].to(self.device),
-                    coordinates=coords_zero
+                    coordinates=input_coords,
                 )
 
-                # attach true geo embedding for distance loss
-                try:
-                    outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
-                except Exception:
-                    pass
+                # distance loss를 위한 true geo embedding (use_fusion=True일 때만)
+                if self.model.use_fusion and self.model.geo_embedding is not None:
+                    try:
+                        outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
+                    except Exception:
+                        pass
 
                 batch_total_loss, region_loss, gender_loss, distance_loss = self.criterion(
                     outputs,
                     batch['region_labels'].to(self.device),
-                    batch['gender_labels'].to(self.device)
+                    batch['gender_labels'].to(self.device),
                 )
 
                 if torch.isnan(batch_total_loss) or torch.isinf(batch_total_loss):
@@ -248,12 +252,13 @@ class AccentTrainer:
                 'r_loss': f"{region_loss.item():.4f}",
                 'g_loss': f"{gender_loss.item():.4f}",
                 'd_loss': f"{distance_loss.item():.4f}",
-                'lr': f"{self.scheduler.get_last_lr()[0]:.2e}"
+                'lr': f"{self.scheduler.get_last_lr()[0]:.2e}",
             })
 
             if self.global_step % self.save_steps == 0:
                 metrics = {'train_loss': avg_loss}
                 self.save_checkpoint(epoch, metrics, is_best=False)
+        
 
         return {'train_loss': epoch_loss / len(self.train_loader)}
 
@@ -266,7 +271,6 @@ class AccentTrainer:
 
         with torch.no_grad():
             for batch in tqdm(self.val_loader, desc='Validation'):
-                # [최종 수정] self.device 제거 (torch.cuda.amp.autocast는 device 인자를 받지 않음)
                 if self.use_amp:
                     amp_context = autocast(dtype=self.amp_dtype)
                 else:
@@ -274,21 +278,24 @@ class AccentTrainer:
 
                 with amp_context:
                     coords = batch['coords'].to(self.device)
-                    coords_zero = torch.zeros_like(coords)
+                    input_coords = coords if self.model.use_fusion else None
+
                     outputs = self.model(
                         input_values=batch['input_values'].to(self.device),
                         attention_mask=batch['attention_mask'].to(self.device),
-                        coordinates=coords_zero
+                        coordinates=input_coords,
                     )
-                    try:
-                        outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
-                    except Exception:
-                        pass
+
+                    if self.model.use_fusion and self.model.geo_embedding is not None:
+                        try:
+                            outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
+                        except Exception:
+                            pass
 
                     batch_total_loss, _, _, _ = self.criterion(
                         outputs,
                         batch['region_labels'].to(self.device),
-                        batch['gender_labels'].to(self.device)
+                        batch['gender_labels'].to(self.device),
                     )
 
                 epoch_loss += batch_total_loss.item()
@@ -299,7 +306,7 @@ class AccentTrainer:
 
         return {
             'val_loss': epoch_loss / len(self.val_loader),
-            'val_accuracy': correct / total
+            'val_accuracy': correct / total,
         }
 
 

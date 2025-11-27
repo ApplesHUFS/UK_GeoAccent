@@ -30,3 +30,6 @@ Thumbs.db
 
 # Wandb
 wandb/
+
+!data/__init__.py
+!data/dataset.py

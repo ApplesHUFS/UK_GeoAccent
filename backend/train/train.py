@@ -96,7 +96,8 @@ def train_model(args):
     criterion = MultiTaskLossWithDistance(
         region_weight=args.region_weight,
         gender_weight=args.gender_weight,
-        distance_weight=args.distance_weight
+        distance_weight=args.distance_weight,
+        device=args.device
     )
 
     print("\n5. Creating trainer...")
