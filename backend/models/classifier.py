@@ -25,7 +25,7 @@ class GeoAccentClassifier(nn.Module):
         fusion_dim=512,
         dropout=0.1,
         freeze_lower_layers=True,
-        num_frozen_layers=16
+        num_frozen_layers=16,
         use_fusion=True
     ):
         super().__init__()
