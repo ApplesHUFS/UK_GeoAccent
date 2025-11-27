@@ -3,6 +3,7 @@ torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.30.0
 datasets>=2.14.0
+torchcodec
 
 # Data processing
 numpy>=1.24.0
@@ -27,3 +28,4 @@ gdown>=4.7.1
 
 # Others
 scipy>=1.11.0
+
