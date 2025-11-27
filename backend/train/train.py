@@ -86,7 +86,7 @@ def train_model(args):
         fusion_dim=args.fusion_dim,
         dropout=args.dropout,
         freeze_lower_layers=True,
-        num_frozen_layers=args.num_frozen_layers
+        num_frozen_layers=args.num_frozen_layers,
         use_fusion=args.use_fusion
     )
     model = model.to(args.device)
