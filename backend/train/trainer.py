@@ -12,7 +12,6 @@ import warnings
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-# 💡 1. 로거 설정 함수 (파일에만 기록)
 def setup_file_logging(log_dir):
     """Set up logging to file ONLY, using a specific logger name."""
     logger = logging.getLogger('FileLogger') # 전용 로거 이름 사용
@@ -290,7 +289,6 @@ class AccentTrainer:
             'val_accuracy': correct / total
         }
 
-    # train/trainer.py
 
     def train(self):
         """Full training loop"""
