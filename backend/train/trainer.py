@@ -6,6 +6,7 @@ import os
 import glob
 import logging
 import torch
+import contextlib
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import warnings
@@ -95,7 +96,7 @@ class AccentTrainer:
 
         # AMP
         self.scaler = GradScaler() if use_amp else None
-        self.amp_dtype = torch.float16 if use_amp else torch.float32
+        self.amp_dtype = torch.bfloat16 if use_amp else torch.float32 
 
         # Training state
         self.start_epoch = 0
@@ -187,7 +188,13 @@ class AccentTrainer:
         pbar = tqdm(self.train_loader, desc=f'Epoch {epoch}/{self.num_epochs}')
 
         for batch_idx, batch in enumerate(pbar):
-            with autocast('cuda', dtype=self.amp_dtype):
+            # [최종 수정] self.device 제거 (torch.cuda.amp.autocast는 device 인자를 받지 않음)
+            if self.use_amp:
+                amp_context = autocast(dtype=self.amp_dtype) 
+            else:
+                amp_context = contextlib.nullcontext()
+
+            with amp_context: 
                 coords = batch['coords'].to(self.device)
                 coords_zero = torch.zeros_like(coords)
                 outputs = self.model(
@@ -259,7 +266,13 @@ class AccentTrainer:
 
         with torch.no_grad():
             for batch in tqdm(self.val_loader, desc='Validation'):
-                with autocast('cuda', dtype=self.amp_dtype):
+                # [최종 수정] self.device 제거 (torch.cuda.amp.autocast는 device 인자를 받지 않음)
+                if self.use_amp:
+                    amp_context = autocast(dtype=self.amp_dtype)
+                else:
+                    amp_context = contextlib.nullcontext()
+
+                with amp_context:
                     coords = batch['coords'].to(self.device)
                     coords_zero = torch.zeros_like(coords)
                     outputs = self.model(
@@ -292,7 +305,6 @@ class AccentTrainer:
 
     def train(self):
         """Full training loop"""
-        # 💡 시작 메시지는 print로 출력하고, 로그 파일에도 기록
         start_msg = f"\nStarting training from epoch {self.start_epoch} for {self.num_epochs} epochs"
         print(start_msg)
         self.file_logger.info(start_msg)
@@ -303,25 +315,20 @@ class AccentTrainer:
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
-            # 💡 콘솔 출력 (print)
             print(f"\nEpoch {epoch} Results:")
             print(f"  Train Loss: {train_metrics['train_loss']:.4f}")
             print(f"  Val Loss: {val_metrics['val_loss']:.4f}")
             print(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
 
-            # 💡 로그 파일 저장 (file_logger.info)
             self.file_logger.info(f"\nEpoch {epoch} Results:")
             self.file_logger.info(f"  Train Loss: {train_metrics['train_loss']:.4f}")
             self.file_logger.info(f"  Val Loss: {val_metrics['val_loss']:.4f}")
             self.file_logger.info(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
 
-
             is_best = val_metrics['val_accuracy'] > self.best_accuracy
             if is_best:
                 self.best_accuracy = val_metrics['val_accuracy']
-                # 💡 콘솔 출력 (print)
                 print(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
-                # 💡 로그 파일 저장 (file_logger.info)
                 self.file_logger.info(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
 
             metrics = {**train_metrics, **val_metrics}
@@ -334,13 +341,10 @@ class AccentTrainer:
                 self.patience_counter += 1
 
             if self.patience_counter >= self.early_stopping_patience:
-                # 💡 콘솔 출력 (print)
                 print(f"Early stopping triggered at epoch {epoch}")
-                # 💡 로그 파일 저장 (file_logger.info)
                 self.file_logger.info(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        # 💡 최종 메시지
         final_msg = f"Training completed! Best accuracy: {self.best_accuracy:.4f}"
         print("\n==================================================")
         print(final_msg)
