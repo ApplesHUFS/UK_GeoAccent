@@ -43,6 +43,7 @@ class GeoAccentConfig:
     geo_embedding_dim: int = 256
     fusion_dim: int = 512
     dropout: float = 0.1
+    use_fusion: bool = True
 
     # Fine-tuning
     freeze_lower_layers: bool = True
@@ -57,7 +58,7 @@ class GeoAccentConfig:
     batch_size: int = 8
     eval_batch_size: int = 12
     gradient_accumulation_steps: int = 2
-    num_epochs: int = 25
+    num_epochs: int = 40
     learning_rate: float = 2e-5
     max_grad_norm: float = 1.0
 
@@ -110,7 +111,6 @@ class GeoAccentConfig:
 
     def __post_init__(self):
         self._setup_model_dimensions()
-        self._normalize_loss_weights()
         self._setup_experiment_paths()
         self._validate_config()
 
