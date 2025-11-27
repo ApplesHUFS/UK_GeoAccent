@@ -29,3 +29,4 @@ gdown>=4.7.1
 # Others
 scipy>=1.11.0
 
+hf_transfer
