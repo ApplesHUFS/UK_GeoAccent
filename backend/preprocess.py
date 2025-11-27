@@ -4,7 +4,7 @@ from datasets import load_dataset, concatenate_datasets
 from collections import defaultdict
 
 def split_dataset(dataset_name, configs, save_dir,
-                                              train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
+                                              train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, random_seed=42):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     
