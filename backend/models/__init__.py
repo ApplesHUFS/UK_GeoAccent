@@ -11,4 +11,5 @@ __all__ = [
     'GeoEmbedding',
     'AttentionFusion',
     'GeoAccentClassifier',
-    'MultiTaskLossWi
+    'MultiTaskLossWi'
+]
