@@ -4,6 +4,7 @@ Trainer for GeoAccent
 """
 import os
 import glob
+import logging
 import torch
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
@@ -11,6 +12,21 @@ import warnings
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+def setup_file_logging(log_dir):
+    """Set up logging to file ONLY, using a specific logger name."""
+    logger = logging.getLogger('FileLogger') # 전용 로거 이름 사용
+    logger.setLevel(logging.INFO)
+    
+    # 중복 핸들러 방지
+    if not logger.handlers:
+        log_file = os.path.join(log_dir, 'training.log')
+        file_handler = logging.FileHandler(log_file)
+        # 시간, 메시지 포맷 유지
+        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+    return logger
 
 class AccentTrainer:
     """
@@ -68,6 +84,8 @@ class AccentTrainer:
         self.use_wandb = use_wandb
         os.makedirs(checkpoint_dir, exist_ok=True)
         os.makedirs(log_dir, exist_ok=True)
+
+        self.file_logger = setup_file_logging(log_dir)
 
         # Optimizer and scheduler
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
@@ -271,20 +289,40 @@ class AccentTrainer:
             'val_accuracy': correct / total
         }
 
+
     def train(self):
         """Full training loop"""
-        print(f"\nStarting training from epoch {self.start_epoch} for {self.num_epochs} epochs")
+        # 💡 시작 메시지는 print로 출력하고, 로그 파일에도 기록
+        start_msg = f"\nStarting training from epoch {self.start_epoch} for {self.num_epochs} epochs"
+        print(start_msg)
+        self.file_logger.info(start_msg)
+        print("==================================================")
+        self.file_logger.info("==================================================")
 
         for epoch in range(self.start_epoch, self.num_epochs):
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
-            print(f"\nEpoch {epoch} Results: Train Loss={train_metrics['train_loss']:.4f}, "
-                  f"Val Loss={val_metrics['val_loss']:.4f}, Val Accuracy={val_metrics['val_accuracy']:.4f}")
+            # 💡 콘솔 출력 (print)
+            print(f"\nEpoch {epoch} Results:")
+            print(f"  Train Loss: {train_metrics['train_loss']:.4f}")
+            print(f"  Val Loss: {val_metrics['val_loss']:.4f}")
+            print(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
+
+            # 💡 로그 파일 저장 (file_logger.info)
+            self.file_logger.info(f"\nEpoch {epoch} Results:")
+            self.file_logger.info(f"  Train Loss: {train_metrics['train_loss']:.4f}")
+            self.file_logger.info(f"  Val Loss: {val_metrics['val_loss']:.4f}")
+            self.file_logger.info(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
+
 
             is_best = val_metrics['val_accuracy'] > self.best_accuracy
             if is_best:
                 self.best_accuracy = val_metrics['val_accuracy']
+                # 💡 콘솔 출력 (print)
+                print(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
+                # 💡 로그 파일 저장 (file_logger.info)
+                self.file_logger.info(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
 
             metrics = {**train_metrics, **val_metrics}
             self.save_checkpoint(epoch, metrics, is_best=is_best)
@@ -296,7 +334,17 @@ class AccentTrainer:
                 self.patience_counter += 1
 
             if self.patience_counter >= self.early_stopping_patience:
+                # 💡 콘솔 출력 (print)
                 print(f"Early stopping triggered at epoch {epoch}")
+                # 💡 로그 파일 저장 (file_logger.info)
+                self.file_logger.info(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        print(f"Training completed! Best accuracy: {self.best_accuracy:.4f}")
+        # 💡 최종 메시지
+        final_msg = f"Training completed! Best accuracy: {self.best_accuracy:.4f}"
+        print("\n==================================================")
+        print(final_msg)
+        print("==================================================")
+        self.file_logger.info("\n==================================================")
+        self.file_logger.info(final_msg)
+        self.file_logger.info("==================================================")
