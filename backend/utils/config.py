@@ -65,8 +65,8 @@ class GeoAccentConfig:
 
     # Training
     use_augment: bool = False     
-    batch_size: int = 8
-    eval_batch_size: int = 12
+    batch_size: int = 32
+    eval_batch_size: int = 32
     gradient_accumulation_steps: int = 2
     num_epochs: int = 40
     learning_rate: float = 2e-5

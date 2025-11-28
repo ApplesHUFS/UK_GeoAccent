@@ -13,24 +13,24 @@ def main():
     )
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
-    # 1. Preprocess command
-    preprocess_parser = subparsers.add_parser(
-        'preprocess', help='Split dataset into train/validation/test'
+    # 1. Prepare command
+    prepare_parser = subparsers.add_parser(
+        'prepare', help='Convert Parquet files to WAV+JSON format and split dataset'
     )
-    preprocess_parser.add_argument('--dataset_name', type=str,
-                                   default='ylacombe/english_dialects',
-                                   help='HuggingFace dataset name')
-    preprocess_parser.add_argument('--save_dir', type=str,
-                                   default='./data/english_dialects',
-                                   help='Directory to save split datasets')
-    preprocess_parser.add_argument('--train_ratio', type=float,
-                                   default=0.8, help='Training data ratio')
-    preprocess_parser.add_argument('--val_ratio', type=float,
-                                   default=0.1, help='Validation data ratio')
-    preprocess_parser.add_argument('--test_ratio', type=float,
-                                   default=0.1, help='Test data ratio')
-    preprocess_parser.add_argument('--seed', type=int,
-                                   default=42, help='Random seed')
+    prepare_parser.add_argument('--parquet_dir', type=str,
+                               default='../data/english_dialects',
+                               help='Directory containing downloaded Parquet files')
+    prepare_parser.add_argument('--save_dir', type=str,
+                               default='./data/english_dialects',
+                               help='Directory to save processed datasets')
+    prepare_parser.add_argument('--train_ratio', type=float,
+                               default=0.8, help='Training data ratio')
+    prepare_parser.add_argument('--val_ratio', type=float,
+                               default=0.1, help='Validation data ratio')
+    prepare_parser.add_argument('--test_ratio', type=float,
+                               default=0.1, help='Test data ratio')
+    prepare_parser.add_argument('--seed', type=int,
+                               default=42, help='Random seed')
 
     # 2. Train command
     train_parser = subparsers.add_parser('train', help='Train the model')
@@ -119,16 +119,10 @@ def main():
     args = parser.parse_args()
 
     # Command execution
-    if args.command == 'preprocess':
-        from preprocess import split_dataset
-        configs = [
-            'irish_male', 'midlands_female', 'midlands_male', 'northern_female',
-            'northern_male', 'scottish_female', 'scottish_male',
-            'southern_female', 'southern_male', 'welsh_female', 'welsh_male'
-        ]
-        split_dataset(
-            dataset_name=args.dataset_name,
-            configs=configs,
+    if args.command == 'prepare':
+        from data.prepare_dataset import convert_parquet_to_wav
+        convert_parquet_to_wav(
+            parquet_dir=args.parquet_dir,
             save_dir=args.save_dir,
             train_ratio=args.train_ratio,
             val_ratio=args.val_ratio,

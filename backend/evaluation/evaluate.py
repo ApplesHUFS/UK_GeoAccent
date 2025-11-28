@@ -29,7 +29,7 @@ class ModelEvaluator:
         if args.device == 'cuda' and torch.cuda.is_available():
             self.device = torch.device("cuda")
         elif args.device == 'cuda' and not torch.cuda.is_available():
-            print("⚠️ CUDA requested but not available. Switching to CPU.")
+            print("WARNING: CUDA requested but not available. Switching to CPU.")
             self.device = torch.device("cpu")
         else:
             self.device = torch.device("cpu")
@@ -215,7 +215,7 @@ def evaluate_model(args):
         json.dump(results, f, indent=4)
     
     print("\n" + "="*50)
-    print("✅ Evaluation Completed")
+    print("Evaluation Completed")
     print(f"Metrics saved to {metrics_path}")
     print(json.dumps(results, indent=4))
     print("="*50)

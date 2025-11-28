@@ -368,8 +368,8 @@ class AccentTrainer:
             is_best = val_metrics['val_accuracy'] > self.best_accuracy
             if is_best:
                 self.best_accuracy = val_metrics['val_accuracy']
-                print(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
-                self.file_logger.info(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
+                print(f"  New best accuracy: {self.best_accuracy:.4f}")
+                self.file_logger.info(f"  New best accuracy: {self.best_accuracy:.4f}") 
 
             metrics = {**train_metrics, **val_metrics}
             self.save_checkpoint(epoch, metrics, is_best=is_best)
