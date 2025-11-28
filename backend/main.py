@@ -46,7 +46,7 @@ def main():
     train_parser.add_argument('--dropout', type=float,
                               default=0.1, help='Dropout rate')
     train_parser.add_argument('--use_fusion', action='store_true',
-                              default=False, help='Use GeoEmbedding Fusion Module')
+                              default=True, help='Use GeoEmbedding Fusion Module')
 
     train_parser.add_argument('--batch_size', type=int,
                               default=8, help='Batch size')
@@ -98,14 +98,6 @@ def main():
 
     train_parser.add_argument('--device', type=str,
                               default='cuda', help='Training device (cuda/cpu)')
-
-    train_parser.add_argument('--use_wandb', action='store_true',
-                              help='Enable Weights & Biases logging')
-    train_parser.add_argument('--wandb_project', type=str,
-                              default='geo-accent-classifier',
-                              help='Weights & Biases project name')
-    train_parser.add_argument('--wandb_run_name', type=str,
-                              default=None, help='Weights & Biases run name')
 
     train_parser.add_argument('--config', type=str,
                               default=None, help='Optional JSON config file')
