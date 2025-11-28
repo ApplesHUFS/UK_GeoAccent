@@ -46,7 +46,7 @@ def main():
     train_parser.add_argument('--dropout', type=float,
                               default=0.1, help='Dropout rate')
     train_parser.add_argument('--use_fusion', action='store_true',
-                              default=False, help='Use GeoEmbedding Fusion Module')
+                              default=True, help='Use GeoEmbedding Fusion Module')
 
     train_parser.add_argument('--batch_size', type=int,
                               default=8, help='Batch size')

@@ -19,7 +19,7 @@ def split_dataset(dataset_name, configs, save_dir,
     for cfg in configs:
         print(f"Loading {cfg}...")
         # seed 설정
-        ds = load_dataset(dataset_name, cfg, split="train", seed=random_seed) 
+        ds = load_dataset(dataset_name, cfg, split="train")
         ds = ds.add_column("config_name", [cfg] * len(ds)) 
         all_datasets.append(ds)
     
@@ -47,23 +47,29 @@ def split_dataset(dataset_name, configs, save_dir,
         random.shuffle(speakers)
         
         total_speakers = len(speakers)
-        
-        # Calculate speaker counts for 8:1:1 ratio
-        n_train = max(1, int(total_speakers * train_ratio))
-        n_val = max(1, int(total_speakers * val_ratio))
-        n_test = max(1, total_speakers - n_train - n_val)
     
-        # 합이 total_speakers를 초과하면 조정
-        total_assigned = n_train + n_val + n_test
-        if total_assigned > total_speakers:
-            diff = total_assigned - total_speakers
-            # test부터 차감
-            if n_test > diff:
-                n_test -= diff
-            elif n_val > diff:
-                n_val -= diff
-            else: # n_train에서 차감
-                n_train -= diff
+        if total_speakers == 3:
+            n_train, n_val, n_test = 1, 1, 1
+            
+        elif total_speakers == 4:
+            n_train, n_val, n_test = 2, 1, 1
+            
+        elif total_speakers == 5:
+            n_train, n_val, n_test = 3, 1, 1
+            
+        else:
+            # 6명 이상일 때는 기존 비율(8:1:1) 로직 사용
+            n_train = int(total_speakers * train_ratio)
+            n_val = int(total_speakers * val_ratio)
+            n_test = total_speakers - n_train - n_val
+            
+            # 비율 계산 후에도 혹시 0이 생기면 보정 (Train에서 가져오기)
+            if n_val < 1: 
+                n_val = 1
+                n_train -= 1
+            if n_test < 1: 
+                n_test = 1
+                n_train -= 1
         
         # Assign speakers to splits (NO OVERLAP)
         idx_ptr = 0
@@ -133,6 +139,59 @@ def split_dataset(dataset_name, configs, save_dir,
     
     return train_ds, val_ds, test_ds, config_speaker_stats, config_sample_stats
 
+def verify_split_distribution(save_dir):
+    """
+    각 세트(train/val/test)에서 모든 region이 포함되었는지 검증
+    """
+    from datasets import load_from_disk
+    from collections import Counter
+    
+    print("\n" + "="*70)
+    print("✅ VERIFICATION: Region distribution in each split")
+    print("="*70)
+    
+    splits = {'train': 'train', 'validation': 'validation', 'test': 'test'}
+    
+    all_splits_valid = True
+    
+    for split_name, split_path in splits.items():
+        full_path = os.path.join(save_dir, split_path)
+        ds = load_from_disk(full_path)
+        
+        # config_name 별로 샘플 수 계산
+        config_counts = Counter([s['config_name'] for s in ds])
+        
+        print(f"\n[{split_name.upper()}] - {len(ds)} samples")
+        print("-" * 70)
+        
+        has_all_regions = True
+        for cfg in sorted(config_counts.keys()):
+            count = config_counts[cfg]
+            # region 추출 (config_name = 'region_gender')
+            region = cfg.split('_')[0]
+            print(f"  {cfg:20s}: {count:4d} samples")
+            
+        # 모든 region이 있는지 확인
+        regions_in_split = set([cfg.split('_')[0] for cfg in config_counts.keys()])
+        expected_regions = {'irish', 'midlands', 'northern', 'scottish', 'southern', 'welsh'}
+        
+        missing_regions = expected_regions - regions_in_split
+        if missing_regions:
+            print(f"  ⚠️  Missing regions: {missing_regions}")
+            has_all_regions = False
+        else:
+            print(f"  ✅ All regions present!")
+        
+        all_splits_valid = all_splits_valid and has_all_regions
+    
+    print("\n" + "="*70)
+    if all_splits_valid:
+        print("✅ SUCCESS: All splits have all regions!")
+    else:
+        print("❌ WARNING: Some splits are missing regions")
+    print("="*70)
+    
+    return all_splits_valid
 
 # Usage (예시 코드는 파일 실행 시점에 실행되도록 유지)
 if __name__ == "__main__":
@@ -145,6 +204,8 @@ if __name__ == "__main__":
         'welsh_male', 'welsh_female'
     ]
 
+    save_dir = "./data/english_dialects"
+    
     split_dataset(
         dataset_name="ylacombe/english_dialects",
         configs=configs,
@@ -154,3 +215,5 @@ if __name__ == "__main__":
         test_ratio=0.1,
         random_seed=42,
     )
+
+    verify_split_distribution(save_dir)
