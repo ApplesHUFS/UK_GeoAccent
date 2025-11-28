@@ -1,0 +1,32 @@
+# Core dependencies
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers>=4.30.0
+datasets>=2.14.0
+torchcodec
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+soundfile>=0.12.1
+librosa>=0.10.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Training utilities
+tqdm>=4.65.0
+wandb>=0.15.0
+
+# Timezone
+pytz>=2023.3
+
+# Download utilities
+gdown>=4.7.1
+
+# Others
+scipy>=1.11.0
+
+hf_transfer
