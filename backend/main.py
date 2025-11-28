@@ -38,7 +38,7 @@ def main():
                               default='facebook/wav2vec2-large-xlsr-53',
                               help='Pretrained Wav2Vec2 model name')
     train_parser.add_argument('--num_frozen_layers', type=int,
-                              default=16, help='Number of lower Wav2Vec2 layers to freeze')
+                              default=0, help='Number of lower Wav2Vec2 layers to freeze')
     train_parser.add_argument('--geo_embedding_dim', type=int,
                               default=256, help='Geographic embedding dimension')
     train_parser.add_argument('--fusion_dim', type=int,
@@ -46,14 +46,14 @@ def main():
     train_parser.add_argument('--dropout', type=float,
                               default=0.1, help='Dropout rate')
     train_parser.add_argument('--use_fusion', action='store_true',
-                              default=True, help='Use GeoEmbedding Fusion Module')
+                              default=False, help='Use GeoEmbedding Fusion Module')
 
     train_parser.add_argument('--batch_size', type=int,
                               default=8, help='Batch size')
     train_parser.add_argument('--gradient_accumulation_steps', type=int,
                               default=2, help='Number of gradient accumulation steps')
     train_parser.add_argument('--learning_rate', type=float,
-                              default=1e-4, help='Learning rate')
+                              default=1e-5, help='Learning rate')
     train_parser.add_argument('--num_epochs', type=int,
                               default=40, help='Number of epochs')
     train_parser.add_argument('--num_workers', type=int,

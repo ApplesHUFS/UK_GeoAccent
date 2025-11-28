@@ -51,12 +51,8 @@ def parse_args():
     parser.add_argument('--min_delta', type=float, default=0.001)
 
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-
-    parser.add_argument('--use_wandb', action='store_true')
-    parser.add_argument('--wandb_project', type=str, default='geo-accent-classifier')
-    parser.add_argument('--wandb_run_name', type=str, default=None)
-
     return parser.parse_args()
+
 
 
 def train_model(args):
@@ -72,9 +68,24 @@ def train_model(args):
 
     print("\n2. Creating DataLoaders...")
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
+                            num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
+
+    print(f"\n[DEBUG] Validation batch check:")
+    val_loader_no_shuffle = DataLoader(
+        val_dataset, batch_size=args.batch_size, shuffle=False,  # ← shuffle=False
+        num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True
+    )
+
+    print("First 10 batches region distribution:")
+    for batch_idx, batch in enumerate(val_loader_no_shuffle):
+        if batch_idx >= 10:
+            break
+        regions = batch['region_labels'].unique().tolist()
+        print(f"  Batch {batch_idx}: regions={regions}, size={len(batch['region_labels'])}")
+
+
 
     print("\n3. Creating model...")
     model = GeoAccentClassifier(
@@ -120,7 +131,6 @@ def train_model(args):
         eval_steps=args.eval_steps,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
-        use_wandb=args.use_wandb
     )
 
     if args.resume:
