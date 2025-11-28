@@ -6,9 +6,11 @@ import os
 import glob
 import logging
 import torch
+import contextlib
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import warnings
+from transformers import get_cosine_schedule_with_warmup
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -42,18 +44,17 @@ class AccentTrainer:
         region_coords,
         device='cuda',
         learning_rate=1e-5,
-        num_epochs=25,
-        gradient_accumulation_steps=4,
+        num_epochs=40,
+        gradient_accumulation_steps=2,
         use_amp=True,
         max_grad_norm=1.0,
         warmup_steps=500,
-        early_stopping_patience=5,
+        early_stopping_patience=8,
         min_delta=0.001,
         save_steps=500,
         eval_steps=500,
         checkpoint_dir='./checkpoints',
-        log_dir='./logs',
-        use_wandb=False
+        log_dir='./logs'
     ):
         self.model = model
         self.criterion = criterion
@@ -81,21 +82,54 @@ class AccentTrainer:
         self.eval_steps = eval_steps
         self.checkpoint_dir = checkpoint_dir
         self.log_dir = log_dir
-        self.use_wandb = use_wandb
         os.makedirs(checkpoint_dir, exist_ok=True)
         os.makedirs(log_dir, exist_ok=True)
 
         self.file_logger = setup_file_logging(log_dir)
 
-        # Optimizer and scheduler
-        self.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=10, T_mult=2
+        low_lr = self.learning_rate    
+        high_lr = low_lr * 5        
+
+        head_params = []
+        encoder_params = []
+
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+
+                continue
+
+            # 그룹 1: Classification Heads & Fusion Components (높은 LR 적용 대상)
+            # GeoAccentClassifier의 구조에 맞게 명확히 분리
+            if 'geo_embedding' in name or \
+               'attention_fusion' in name or \
+               'region_embedding_predictor' in name or \
+               'region_classifier' in name or \
+               'gender_classifier' in name:
+                
+                head_params.append(param)
+            else:
+                encoder_params.append(param)
+        
+        # 3. 옵티마이저에 파라미터 그룹 전달
+        self.optimizer = torch.optim.AdamW([
+            # 그룹 A: Wav2Vec2 Encoder (낮은 LR, Weight Decay 적용)
+            {'params': encoder_params, 'lr': low_lr, 'weight_decay': 0.01}, 
+            
+            # 그룹 B: Classification Heads & Fusion (높은 LR, Weight Decay 0.0)
+            {'params': head_params, 'lr': high_lr, 'weight_decay': 0.0}
+        ], lr=low_lr) 
+
+        total_steps = len(train_loader) * num_epochs // gradient_accumulation_steps
+
+        self.scheduler = get_cosine_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=500,
+            num_training_steps=total_steps
         )
 
         # AMP
         self.scaler = GradScaler() if use_amp else None
-        self.amp_dtype = torch.float16 if use_amp else torch.float32
+        self.amp_dtype = torch.bfloat16 if use_amp else torch.float32 
 
         # Training state
         self.start_epoch = 0
@@ -185,27 +219,37 @@ class AccentTrainer:
         self.model.train()
         epoch_loss = 0.0
         pbar = tqdm(self.train_loader, desc=f'Epoch {epoch}/{self.num_epochs}')
-
+        
         for batch_idx, batch in enumerate(pbar):
-            with autocast('cuda', dtype=self.amp_dtype):
+            if self.use_amp:
+                amp_context = autocast(dtype=self.amp_dtype)
+            else:
+                amp_context = contextlib.nullcontext()
+
+            with amp_context:
+                # use_fusion 여부에 따라 coordinates 전달 결정
                 coords = batch['coords'].to(self.device)
-                coords_zero = torch.zeros_like(coords)
+
+                # use_fusion=True면 실제 좌표, False면 None
+                input_coords = coords if self.model.use_fusion else None
+
                 outputs = self.model(
                     input_values=batch['input_values'].to(self.device),
                     attention_mask=batch['attention_mask'].to(self.device),
-                    coordinates=coords_zero
+                    coordinates=input_coords,
                 )
 
-                # attach true geo embedding for distance loss
-                try:
-                    outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
-                except Exception:
-                    pass
+                # distance loss를 위한 true geo embedding (use_fusion=True일 때만)
+                if self.model.use_fusion and self.model.geo_embedding is not None:
+                    try:
+                        outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
+                    except Exception:
+                        pass
 
                 batch_total_loss, region_loss, gender_loss, distance_loss = self.criterion(
                     outputs,
                     batch['region_labels'].to(self.device),
-                    batch['gender_labels'].to(self.device)
+                    batch['gender_labels'].to(self.device),
                 )
 
                 if torch.isnan(batch_total_loss) or torch.isinf(batch_total_loss):
@@ -241,12 +285,13 @@ class AccentTrainer:
                 'r_loss': f"{region_loss.item():.4f}",
                 'g_loss': f"{gender_loss.item():.4f}",
                 'd_loss': f"{distance_loss.item():.4f}",
-                'lr': f"{self.scheduler.get_last_lr()[0]:.2e}"
+                'lr': f"{self.scheduler.get_last_lr()[0]:.2e}",
             })
 
             if self.global_step % self.save_steps == 0:
                 metrics = {'train_loss': avg_loss}
                 self.save_checkpoint(epoch, metrics, is_best=False)
+        
 
         return {'train_loss': epoch_loss / len(self.train_loader)}
 
@@ -259,23 +304,31 @@ class AccentTrainer:
 
         with torch.no_grad():
             for batch in tqdm(self.val_loader, desc='Validation'):
-                with autocast('cuda', dtype=self.amp_dtype):
+                if self.use_amp:
+                    amp_context = autocast(dtype=self.amp_dtype)
+                else:
+                    amp_context = contextlib.nullcontext()
+
+                with amp_context:
                     coords = batch['coords'].to(self.device)
-                    coords_zero = torch.zeros_like(coords)
+                    input_coords = coords if self.model.use_fusion else None
+
                     outputs = self.model(
                         input_values=batch['input_values'].to(self.device),
                         attention_mask=batch['attention_mask'].to(self.device),
-                        coordinates=coords_zero
+                        coordinates=input_coords,
                     )
-                    try:
-                        outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
-                    except Exception:
-                        pass
+
+                    if self.model.use_fusion and self.model.geo_embedding is not None:
+                        try:
+                            outputs['true_geo_embedding'] = self.model.geo_embedding(coords)
+                        except Exception:
+                            pass
 
                     batch_total_loss, _, _, _ = self.criterion(
                         outputs,
                         batch['region_labels'].to(self.device),
-                        batch['gender_labels'].to(self.device)
+                        batch['gender_labels'].to(self.device),
                     )
 
                 epoch_loss += batch_total_loss.item()
@@ -286,13 +339,12 @@ class AccentTrainer:
 
         return {
             'val_loss': epoch_loss / len(self.val_loader),
-            'val_accuracy': correct / total
+            'val_accuracy': correct / total,
         }
 
 
     def train(self):
         """Full training loop"""
-        # 💡 시작 메시지는 print로 출력하고, 로그 파일에도 기록
         start_msg = f"\nStarting training from epoch {self.start_epoch} for {self.num_epochs} epochs"
         print(start_msg)
         self.file_logger.info(start_msg)
@@ -303,26 +355,21 @@ class AccentTrainer:
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
-            # 💡 콘솔 출력 (print)
             print(f"\nEpoch {epoch} Results:")
             print(f"  Train Loss: {train_metrics['train_loss']:.4f}")
             print(f"  Val Loss: {val_metrics['val_loss']:.4f}")
             print(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
 
-            # 💡 로그 파일 저장 (file_logger.info)
             self.file_logger.info(f"\nEpoch {epoch} Results:")
             self.file_logger.info(f"  Train Loss: {train_metrics['train_loss']:.4f}")
             self.file_logger.info(f"  Val Loss: {val_metrics['val_loss']:.4f}")
             self.file_logger.info(f"  Val Accuracy: {val_metrics['val_accuracy']:.4f}")
 
-
             is_best = val_metrics['val_accuracy'] > self.best_accuracy
             if is_best:
                 self.best_accuracy = val_metrics['val_accuracy']
-                # 💡 콘솔 출력 (print)
-                print(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
-                # 💡 로그 파일 저장 (file_logger.info)
-                self.file_logger.info(f"  🎉 New best accuracy: {self.best_accuracy:.4f}") 
+                print(f"  New best accuracy: {self.best_accuracy:.4f}")
+                self.file_logger.info(f"  New best accuracy: {self.best_accuracy:.4f}") 
 
             metrics = {**train_metrics, **val_metrics}
             self.save_checkpoint(epoch, metrics, is_best=is_best)
@@ -334,13 +381,10 @@ class AccentTrainer:
                 self.patience_counter += 1
 
             if self.patience_counter >= self.early_stopping_patience:
-                # 💡 콘솔 출력 (print)
                 print(f"Early stopping triggered at epoch {epoch}")
-                # 💡 로그 파일 저장 (file_logger.info)
                 self.file_logger.info(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        # 💡 최종 메시지
         final_msg = f"Training completed! Best accuracy: {self.best_accuracy:.4f}"
         print("\n==================================================")
         print(final_msg)

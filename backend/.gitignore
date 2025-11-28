@@ -1,32 +1,20 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-*.egg-info/
-
-# Data
-data/
-*.zip
-*.tar.gz
-
-# Checkpoints & Logs
-checkpoints/
-logs/
-results/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # OS
 .DS_Store
 Thumbs.db
 
+env 
+
 # Wandb
 wandb/
+
+# data 폴더 전체 무시
+data/*
+
+# 단, 특정 파일은 포함
+!data/__init__.py
+!data/dataset.py
+
+__pycache__
+checkpoints
+results
+logs

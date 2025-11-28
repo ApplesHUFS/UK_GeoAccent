@@ -51,12 +51,8 @@ def parse_args():
     parser.add_argument('--min_delta', type=float, default=0.001)
 
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-
-    parser.add_argument('--use_wandb', action='store_true')
-    parser.add_argument('--wandb_project', type=str, default='geo-accent-classifier')
-    parser.add_argument('--wandb_run_name', type=str, default=None)
-
     return parser.parse_args()
+
 
 
 def train_model(args):
@@ -71,10 +67,15 @@ def train_model(args):
     print(f"   Validation samples: {len(val_dataset)}")
 
     print("\n2. Creating DataLoaders...")
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
+    # train_loader는 shuffle=False로 설정 (dataset에서 이미 셔플됨)
+    # num_workers=0으로 설정하여 메모리 부족 문제 방지 (오디오 데이터가 큼)
+    # pin_memory=False로 설정하여 추가 메모리 사용 방지
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False,
+                            num_workers=0, collate_fn=collate_fn, pin_memory=False)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
-                            num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
+                            num_workers=0, collate_fn=collate_fn, pin_memory=False)
+
+
 
     print("\n3. Creating model...")
     model = GeoAccentClassifier(
@@ -96,7 +97,8 @@ def train_model(args):
     criterion = MultiTaskLossWithDistance(
         region_weight=args.region_weight,
         gender_weight=args.gender_weight,
-        distance_weight=args.distance_weight
+        distance_weight=args.distance_weight,
+        device=args.device
     )
 
     print("\n5. Creating trainer...")
@@ -119,7 +121,6 @@ def train_model(args):
         eval_steps=args.eval_steps,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
-        use_wandb=args.use_wandb
     )
 
     if args.resume:

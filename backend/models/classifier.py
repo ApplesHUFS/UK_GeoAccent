@@ -26,7 +26,7 @@ class GeoAccentClassifier(nn.Module):
         dropout=0.1,
         freeze_lower_layers=True,
         num_frozen_layers=16,
-        use_fusion=True
+        use_fusion=False  # 기본값 False
     ):
         super().__init__()
         
@@ -48,19 +48,32 @@ class GeoAccentClassifier(nn.Module):
         if freeze_lower_layers:
             self._freeze_lower_encoder_layers(num_frozen_layers)
         
-        # Geographic embedding
-        self.geo_embedding = GeoEmbedding(
-            embedding_dim=geo_embedding_dim,
-            dropout=dropout
-        )
-        
-        # Attention-based fusion
-        self.attention_fusion = AttentionFusion(
-            audio_dim=hidden_dim,
-            geo_dim=geo_embedding_dim,
-            fusion_dim=fusion_dim,
-            dropout=dropout
-        )
+        # Geographic embedding (use_fusion=True일 때만 사용)
+        if self.use_fusion:
+            self.geo_embedding = GeoEmbedding(
+                embedding_dim=geo_embedding_dim,
+                dropout=dropout
+            )
+            
+            # Attention-based fusion
+            self.attention_fusion = AttentionFusion(
+                audio_dim=hidden_dim,
+                geo_dim=geo_embedding_dim,
+                fusion_dim=fusion_dim,
+                dropout=dropout
+            )
+            
+            # Region embedding predictor (distance loss용)
+            self.region_embedding_predictor = nn.Sequential(
+                nn.Linear(hidden_dim, 256),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(256, geo_embedding_dim)
+            )
+        else:
+            self.geo_embedding = None
+            self.attention_fusion = None
+            self.region_embedding_predictor = None
         
         # Classification heads
         self.region_classifier = nn.Sequential(
@@ -76,14 +89,6 @@ class GeoAccentClassifier(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(128, num_genders)
         )
-        
-        # Region embedding predictor
-        self.region_embedding_predictor = nn.Sequential(
-            nn.Linear(hidden_dim, 256),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(256, geo_embedding_dim)
-        )
     
     def _freeze_lower_encoder_layers(self, num_layers):
         """Freeze lower transformer layers"""
@@ -93,20 +98,20 @@ class GeoAccentClassifier(nn.Module):
                 for param in layer.parameters():
                     param.requires_grad = False
     
-    def forward(self, input_values, attention_mask, coordinates):
+    def forward(self, input_values, attention_mask, coordinates=None):
         """
         Args:
             input_values: (B, T) audio waveform
             attention_mask: (B, T) mask for valid audio frames
-            coordinates: (B, 2) normalized (lat, lon)
+            coordinates: (B, 2) normalized (lat, lon) - use_fusion=True일 때만 사용
         
         Returns:
             dict: {
                 'region_logits': (B, num_regions),
                 'gender_logits': (B, num_genders),
-                'predicted_geo_embedding': (B, geo_embedding_dim),
-                'true_geo_embedding': (B, geo_embedding_dim),
-                'attention_weights': (B, 1)
+                'predicted_geo_embedding': (B, geo_embedding_dim) or None,
+                'true_geo_embedding': (B, geo_embedding_dim) or None,
+                'attention_weights': (B, 1) or None
             }
         """
         # Audio feature extraction
@@ -130,25 +135,40 @@ class GeoAccentClassifier(nn.Module):
         else:
             audio_features_pooled = audio_features.mean(dim=1)
         
-        # Geographic embedding
-        geo_embedding = self.geo_embedding(coordinates)
-        
-        # Attention fusion
-        if self.use_fusion: 
+        # use_fusion 분기
+        if self.use_fusion:
+            # Geographic embedding 계산
+            if coordinates is not None:
+                geo_embedding = self.geo_embedding(coordinates)
+            else:
+                # coordinates가 없으면 zero embedding (학습 시 이런 경우는 없어야 함)
+                B = input_values.shape[0]
+                geo_embedding = torch.zeros(
+                    B, 
+                    self.geo_embedding_dim, 
+                    dtype=input_values.dtype, 
+                    device=input_values.device
+                )
+            
+            # Attention fusion
             fused_features, attention_weights = self.attention_fusion(
                 audio_features_pooled,
                 geo_embedding
             )
+            
+            # Predict region embedding (for distance loss)
+            predicted_geo_emb = self.region_embedding_predictor(fused_features)
+            
         else:
-            fused_features = audio_features_pooled 
-            attention_weights = None 
+            # use_fusion=False: audio features만 사용
+            fused_features = audio_features_pooled
+            geo_embedding = None
+            attention_weights = None
+            predicted_geo_emb = None
 
         # Classification
         region_logits = self.region_classifier(fused_features)
         gender_logits = self.gender_classifier(fused_features)
-        
-        # Predict region embedding
-        predicted_geo_emb = self.region_embedding_predictor(fused_features)
         
         return {
             'region_logits': region_logits,
@@ -168,5 +188,6 @@ class GeoAccentClassifier(nn.Module):
             'geo_embedding_dim': self.geo_embedding_dim,
             'fusion_dim': self.fusion_dim,
             'dropout': self.dropout,
-            'num_frozen_layers': self.num_frozen_layers
+            'num_frozen_layers': self.num_frozen_layers,
+            'use_fusion': self.use_fusion
         }

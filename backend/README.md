@@ -1,19 +1,19 @@
 # GeoAccent: Geographic-Aware British English Accent Classifier
-(DRAFT)
 
-영국 영어 억양을 지리 정보와 결합하여 지역별로 분류하는 Wav2Vec2 기반 딥러닝 모델입니다. Attention mechanism을 통해 음성과 지리 정보를 동적으로 융합하고, Partial fine-tuning으로 효율성을 극대화했습니다.
+A Wav2Vec2-based deep learning model for British English accent classification with geographic information integration. The model combines audio features and geographic coordinates through attention mechanism for improved regional classification.
 
-## 주요 기능
+## Features
 
-- **Geographic Attention**: 음성 특성에 따라 지리 정보 가중치를 동적으로 조정
-- **Partial Fine-tuning**: 상위 8개 레이어만 학습 (67% 파라미터 감소, 2.5배 빠른 학습)
-- **Distance Regularization**: 지리적 구조를 명시적으로 학습
-- **Multi-task Learning**: 지역 분류 + 성별 분류 (auxiliary task)
+- **Geographic Attention Fusion**: Dynamic integration of audio and geographic information
+- **Partial Fine-tuning**: Efficient training by freezing lower layers
+- **Distance Regularization**: Explicit learning of geographic structure
+- **Multi-task Learning**: Region classification + gender classification (auxiliary task)
+- **Memory-efficient Pipeline**: Streaming data processing with JSON metadata
 
-## 지원 지역
+## Supported Regions
 
-| Region | 대표 도시 | 좌표 |
-|--------|----------|------|
+| Region | City | Coordinates |
+|--------|------|-------------|
 | Irish | Dublin | 53.3°N, 6.3°W |
 | Midlands | Birmingham | 52.7°N, 1.1°W |
 | Northern | Belfast | 54.6°N, 5.9°W |
@@ -21,536 +21,457 @@
 | Southern | London | 51.5°N, 0.1°W |
 | Welsh | Cardiff | 51.5°N, 3.2°W |
 
-## 시스템 요구사항
+## Requirements
 
-### 하드웨어
-- **GPU**: CUDA 지원 GPU 권장 (최소 8GB VRAM, RTX 4090 24GB 최적화)
-- **RAM**: 최소 16GB
-- **디스크**: 30GB 이상 (데이터셋 + 모델)
+### Hardware
+- **GPU**: CUDA-enabled GPU recommended (minimum 8GB VRAM, RTX 4090 24GB optimal)
+- **RAM**: Minimum 16GB
+- **Disk**: 30GB+ (dataset + model)
 
-### 소프트웨어
-- Python 3.8 이상
-- CUDA 11.0 이상 (GPU 사용 시)
+### Software
+- Python 3.8+
+- CUDA 11.0+ (for GPU usage)
 
-## 설치 방법
+## Installation
 
-### 1. 저장소 복제
+### 1. Clone Repository
 ```bash
 git clone https://github.com/yourusername/GeoAccent.git
-cd GeoAccent
+cd GeoAccent/backend
 ```
 
-### 2. 가상환경 생성
+### 2. Create Virtual Environment
 ```bash
-# Conda (권장)
+# Conda (recommended)
 conda create -n geoaccent python=3.10
 conda activate geoaccent
 
-# 또는 venv
+# Or venv
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
 ```
 
-### 3. 의존성 설치
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-## 빠른 시작
+## Quick Start
 
-### 1단계: 데이터셋 준비
+### Step 1: Download Dataset
+
+First, download the English Dialects dataset from HuggingFace:
+
 ```bash
-# HuggingFace 데이터셋 자동 다운로드 및 전처리
-python main.py preprocess \
-    --dataset_name ylacombe/english_dialects \
+bash download_dataset.sh
+```
+
+This script downloads the Parquet files for all 11 configurations:
+- irish_male
+- midlands_female, midlands_male
+- northern_female, northern_male
+- scottish_female, scottish_male
+- southern_female, southern_male
+- welsh_female, welsh_male
+
+The dataset will be saved to `../data/english_dialects/`.
+
+### Step 2: Prepare Dataset
+
+Convert the Parquet files to WAV+JSON format and split into train/validation/test:
+
+```bash
+python main.py prepare \
+    --parquet_dir ../data/english_dialects \
     --save_dir ./data/english_dialects \
     --train_ratio 0.8 \
     --val_ratio 0.1 \
-    --test_ratio 0.1
+    --test_ratio 0.1 \
+    --seed 42
 ```
 
-### 2단계: 모델 훈련
+This command:
+1. Reads Parquet files with speaker metadata
+2. Splits data by speaker (no speaker overlap between splits)
+3. Converts audio to WAV files
+4. Generates JSON metadata with labels and coordinates
+5. Creates train/validation/test directories
 
-**기본 설정으로 훈련**:
+Expected output structure:
+```
+data/english_dialects/
+├── train/
+│   ├── audio/
+│   │   ├── 0.wav
+│   │   ├── 1.wav
+│   │   └── ...
+│   └── metadata.json
+├── validation/
+│   ├── audio/
+│   └── metadata.json
+└── test/
+    ├── audio/
+    └── metadata.json
+```
+
+### Step 3: Train Model
+
+**Basic training**:
 ```bash
 python main.py train
 ```
 
-**커스텀 설정으로 훈련**:
+**Custom configuration**:
 ```bash
 python main.py train \
-    --batch_size 4 \
-    --num_epochs 25 \
+    --batch_size 8 \
+    --num_epochs 40 \
     --learning_rate 1e-5 \
-    --use_wandb \
-    --wandb_project my-geoaccent
+    --use_fusion \
+    --num_frozen_layers 0
 ```
 
-### 3단계: 모델 평가
+### Step 4: Evaluate Model
+
 ```bash
 python main.py evaluate \
-    --checkpoint experiments/geo_accent_xlsr53_*/checkpoints/best_model.pt \
+    --checkpoint checkpoints/best.pt \
     --split test \
     --output_dir results
 ```
 
-## 상세 사용 가이드
+## Training Configuration
 
-### 모델 아키텍처 선택
+### Model Architecture
 
-#### Wav2Vec2 Base (빠른 실험용)
+**Use Geographic Fusion** (recommended):
 ```bash
-python main.py train \
-    --pretrained_model facebook/wav2vec2-base \
-    --batch_size 8
+python main.py train --use_fusion
 ```
 
-#### Wav2Vec2 XLSR-53 (기본값, 권장)
+**Without Fusion** (audio features only):
 ```bash
-python main.py train \
-    --pretrained_model facebook/wav2vec2-large-xlsr-53 \
-    --batch_size 4
+python main.py train
 ```
 
-**모델 비교**:
-- **Base**: ~95M 파라미터, 빠른 훈련, 낮은 메모리
-- **XLSR-53**: ~317M 파라미터, 높은 성능, 다국어 사전학습
+### Fine-tuning Strategy
 
-### Fine-tuning 전략
-
-#### Full Fine-tuning (모든 레이어 학습)
+**Full Fine-tuning** (all layers trainable):
 ```bash
-python main.py train --no_freeze_layers
+python main.py train --num_frozen_layers 0
 ```
 
-#### Partial Fine-tuning (상위 8개 레이어만, 권장)
+**Partial Fine-tuning** (freeze lower 16 layers):
 ```bash
-python main.py train \
-    --freeze_lower_layers \
-    --num_frozen_layers 16
+python main.py train --num_frozen_layers 16
 ```
 
-#### Minimal Fine-tuning (상위 4개 레이어만)
-```bash
-python main.py train \
-    --freeze_lower_layers \
-    --num_frozen_layers 20
-```
+### Loss Weights
 
-**효과 비교**:
-| 전략 | 학습 파라미터 | 학습 속도 | 메모리 | 성능 |
-|------|--------------|----------|--------|------|
-| Full | 100% | 기준 | 높음 | 높음 |
-| Partial (8) | 33% | 2.5× | 중간 | 높음 ✅ |
-| Minimal (4) | 17% | 3.5× | 낮음 | 중간 |
-
-### Loss Weight 조정
-
-다중 작업 학습의 가중치를 조정할 수 있습니다:
+Adjust multi-task learning weights:
 ```bash
 python main.py train \
     --region_weight 1.0 \
-    --gender_weight 0.3 \
-    --distance_weight 0.5
+    --gender_weight 0.1 \
+    --distance_weight 0.05
 ```
 
-**Loss 구성**:
+Loss composition:
 ```
 Total Loss = α·L_region + β·L_gender + γ·L_distance
 
-- L_region:   Cross-Entropy (지역 분류, Main task)
-- L_gender:   Cross-Entropy (성별 분류, Auxiliary)
-- L_distance: Cosine Distance (지리적 임베딩 거리)
+L_region:   Cross-Entropy (region classification, main task)
+L_gender:   Cross-Entropy (gender classification, auxiliary)
+L_distance: Cosine Distance (geographic embedding distance)
 ```
 
-### 하이퍼파라미터 튜닝
+### Hyperparameters
 
-명령줄에서 주요 하이퍼파라미터를 조정할 수 있습니다:
+Key hyperparameters:
 ```bash
 python main.py train \
     --batch_size 8 \
     --gradient_accumulation_steps 2 \
-    --learning_rate 5e-5 \
-    --num_epochs 30 \
+    --learning_rate 1e-5 \
+    --num_epochs 40 \
     --warmup_steps 500 \
-    --early_stopping_patience 5
+    --early_stopping_patience 8 \
+    --max_grad_norm 1.0
 ```
 
-**주요 파라미터**:
-- `batch_size`: 배치 크기 (기본값: 4)
-- `gradient_accumulation_steps`: 그래디언트 누적 (기본값: 4, 유효 배치=16)
-- `learning_rate`: 학습률 (기본값: 1e-5)
-- `num_epochs`: 에폭 수 (기본값: 25)
-- `warmup_steps`: Warmup 단계 (기본값: 500)
+### Optimization
 
-### 최적화 옵션
-
-#### Mixed Precision Training (기본 활성화)
+**Mixed Precision Training** (enabled by default):
 ```bash
-python main.py train --use_amp --amp_dtype bfloat16
+python main.py train --use_amp
 ```
 
-**효과**: 30% 학습 속도 향상, 메모리 40% 감소
-
-#### Gradient Clipping
+**Resume Training**:
 ```bash
-python main.py train --max_grad_norm 1.0
+python main.py train --resume checkpoints/last.pt
 ```
 
-### 데이터 Augmentation
-
-훈련 시 augmentation을 활성화할 수 있습니다:
-```bash
-python main.py train --use_augment
-```
-
-**적용되는 Augmentation**:
-- Gaussian Noise (강도: 0.005)
-- Random Volume (±20%)
-
-### Weights & Biases 통합
-
-실험 추적을 위한 W&B 활성화:
-```bash
-python main.py train \
-    --use_wandb \
-    --wandb_project geo-accent-experiments \
-    --wandb_run_name partial_finetune_exp1
-```
-
-### 훈련 재개
-
-중단된 훈련을 재개할 수 있습니다:
-```bash
-python main.py train \
-    --resume experiments/my_experiment/checkpoints/latest.pt
-```
-
-시스템이 자동으로:
-- 모델 가중치 로드
-- 옵티마이저 상태 복원
-- 에폭 카운터 재설정
-- 학습 히스토리 복원
-
-## 평가 지표
-
-### Region Classification
-- **Accuracy**: 전체 정확도
-- **F1 Score (Macro)**: 클래스별 균등 가중 F1
-- **F1 Score (Weighted)**: 클래스 크기 기반 가중 F1
-- **Precision**: 예측 정밀도
-- **Recall**: 재현율
-- **Per-class F1**: 각 지역별 F1 스코어
-
-### Gender Classification (Auxiliary)
-- **Accuracy**: 성별 분류 정확도
-- **F1 Score**: 이진 분류 F1
-
-### Geographic Embedding
-- **Cosine Similarity**: 예측 임베딩 vs 실제 임베딩 유사도
-- **Distance Loss**: 지리적 거리 기반 loss
-
-### Confusion Matrix
-지역 간 혼동 패턴을 시각화합니다:
-- 지리적으로 가까운 지역 간 혼동 분석
-- 오분류 방향 파악
-
-## 출력 구조
+## Project Structure
 
 ```
-experiments/
-└── geo_accent_xlsr53_freeze16_bs4x4_20241124_153022/
-    ├── checkpoints/
-    │   ├── best_model.pt           # 최고 Region Accuracy
-    │   ├── best_region_f1.pt       # 최고 Region F1
-    │   ├── best_loss.pt            # 최저 Validation Loss
-    │   └── latest.pt               # 최신 체크포인트
-    ├── logs/
-    │   ├── training.log            # 상세 훈련 로그
-    │   ├── training_history.png    # 학습 곡선
-    │   └── confusion_matrix.png    # Confusion matrix
-    ├── results/
-    │   ├── final_metrics.json      # 최종 평가 지표
-    │   ├── per_region_metrics.json # 지역별 성능
-    │   └── attention_weights.png   # Attention 시각화
-    └── config.json                 # 사용된 설정
-```
-
-## 프로젝트 구조
-
-```
-GeoAccent/
-├── config.py                   # 통합 설정 파일
-├── main.py                     # 메인 진입점
+backend/
+├── main.py                      # Main entry point
 ├── data/
 │   ├── __init__.py
-│   └── dataset.py             # Dataset 및 DataLoader
+│   ├── dataset.py               # PyTorch Dataset for WAV+JSON
+│   └── prepare_dataset.py       # Parquet to WAV+JSON conversion
 ├── models/
 │   ├── __init__.py
-│   ├── embeddings.py          # GeoEmbedding, AttentionFusion
-│   ├── classifier.py          # GeoAccentClassifier
-│   └── losses.py              # MultiTaskLossWithDistance
+│   ├── classifier.py            # GeoAccentClassifier
+│   ├── embeddings.py            # GeoEmbedding, AttentionFusion
+│   └── losses.py                # MultiTaskLossWithDistance
 ├── train/
 │   ├── __init__.py
-│   ├── trainer.py             # AccentTrainer 클래스
-│   └── train.py               # 훈련 스크립트
+│   ├── train.py                 # Training script
+│   └── trainer.py               # AccentTrainer class
 ├── evaluation/
 │   ├── __init__.py
-│   ├── evaluate.py            # 평가 스크립트
-│   └── metrics.py             # 평가 메트릭
+│   ├── evaluate.py              # Evaluation script
+│   └── metrics.py               # Evaluation metrics
 ├── preprocessing/
 │   ├── __init__.py
-│   └── preprocessing.py       # 오디오 전처리
+│   └── preprocessing.py         # Audio preprocessing
 ├── utils/
-│   └── visualization.py       # 시각화 도구
-├── requirements.txt
-└── README.md
+│   └── config.py                # Configuration and constants
+└── download_dataset.sh          # Dataset download script
 ```
 
-## 문제 해결
+## Evaluation Metrics
+
+### Region Classification
+- **Accuracy**: Overall accuracy
+- **F1 Score (Macro)**: Class-balanced F1
+- **F1 Score (Weighted)**: Sample-weighted F1
+- **Precision**: Prediction precision
+- **Recall**: Recall rate
+- **Per-class Accuracy**: Accuracy for each region
+- **Confusion Matrix**: Regional confusion patterns
+
+### Gender Classification (Auxiliary)
+- **Accuracy**: Gender classification accuracy
+- **F1 Score**: Binary classification F1
+
+### Geographic Embedding (with --use_fusion)
+- **Cosine Similarity**: Predicted vs. actual embedding similarity
+- **Distance Loss**: Geographic distance-based loss
+
+## Troubleshooting
 
 ### CUDA Out of Memory
 
-**증상**: `RuntimeError: CUDA out of memory`
+**Symptom**: `RuntimeError: CUDA out of memory`
 
-**해결 방법 1** - 배치 크기 줄이기:
+**Solution 1** - Reduce batch size:
 ```bash
-python main.py train --batch_size 2 --gradient_accumulation_steps 8
+python main.py train --batch_size 4 --gradient_accumulation_steps 4
 ```
 
-**해결 방법 2** - Base 모델 사용:
+**Solution 2** - Disable pin_memory (already done by default):
+The code automatically sets `num_workers=0` and `pin_memory=False` for memory efficiency.
+
+### DataLoader Worker Killed
+
+**Symptom**: `RuntimeError: DataLoader worker (pid) is killed by signal: Aborted`
+
+**Solution**: The code automatically uses `num_workers=0` to avoid multiprocessing memory issues. If you still encounter this error, reduce batch size:
 ```bash
-python main.py train --pretrained_model facebook/wav2vec2-base
+python main.py train --batch_size 2
 ```
 
-**해결 방법 3** - Mixed Precision 활성화 (기본값):
+### Dataset Not Found
+
+**Symptom**: `FileNotFoundError: Metadata not found`
+
+**Solution**: Ensure you ran the prepare command:
 ```bash
-python main.py train --use_amp --amp_dtype bfloat16
+python main.py prepare --parquet_dir ../data/english_dialects
 ```
 
-### 데이터셋 다운로드 실패
+### Training Instability
 
-**증상**: `ConnectionError` 또는 느린 다운로드
+**Symptom**: Loss diverges or NaN values
 
-**해결책**:
+**Solution 1** - Lower learning rate:
 ```bash
-# HuggingFace 캐시 확인
-ls ~/.cache/huggingface/datasets/
-
-# 수동 다운로드 후 경로 지정
-python main.py preprocess --dataset_path ./local_dataset
-```
-
-### Import 에러
-
-**증상**: `ModuleNotFoundError: No module named 'models'`
-
-**해결책**:
-```bash
-# 프로젝트 루트에서 실행
-cd GeoAccent
-python main.py train
-
-# PYTHONPATH 설정 (필요시)
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-```
-
-### 학습 불안정
-
-**증상**: Loss가 발산하거나 NaN 발생
-
-**해결책**:
-```bash
-# 학습률 낮추기
 python main.py train --learning_rate 5e-6
+```
 
-# Gradient clipping 강화
+**Solution 2** - Stronger gradient clipping:
+```bash
 python main.py train --max_grad_norm 0.5
+```
 
-# Loss weight 조정
+**Solution 3** - Adjust loss weights:
+```bash
 python main.py train \
-    --region_weight 0.5 \
-    --gender_weight 0.2 \
-    --distance_weight 0.3
+    --region_weight 1.0 \
+    --gender_weight 0.05 \
+    --distance_weight 0.01
 ```
 
-### Attention Weight가 수렴 안 됨
+## Performance Benchmark
 
-**증상**: Attention weight가 모든 샘플에 비슷함
+### Training Time (RTX 4090 24GB, batch_size=8)
 
-**해결책**:
-```bash
-# Distance loss 가중치 증가
-python main.py train --distance_weight 0.7
+| Configuration | Time per Epoch | Full Training (40 epochs) |
+|---------------|----------------|---------------------------|
+| Full Fine-tuning | ~45 min | ~30 hours |
+| Partial (16 frozen) | ~25 min | ~16 hours |
 
-# Fusion dimension 조정
-python main.py train --fusion_dim 256
-```
+### Memory Usage
 
-## 성능 벤치마크
+| Configuration | GPU Memory | Trainable Parameters |
+|---------------|------------|---------------------|
+| Full Fine-tuning | 18-20 GB | ~317M |
+| Partial (16 frozen) | 12-14 GB | ~105M |
+| No Fusion | 10-12 GB | Variable |
 
-### 훈련 시간 (RTX 4090 24GB)
+## Advanced Usage
 
-**Single Epoch**:
-- Full Fine-tuning: ~2.5시간
-- Partial Fine-tuning (8 layers): ~1.0시간 ✅
-- Minimal Fine-tuning (4 layers): ~0.7시간
-
-**전체 학습 (25 epochs)**:
-- Full Fine-tuning: ~62.5시간
-- Partial Fine-tuning: ~25시간 ✅
-- Minimal Fine-tuning: ~17.5시간
-
-### 메모리 사용량
-
-| 모델 | Full | Partial (8) | Minimal (4) |
-|------|------|-------------|-------------|
-| **GPU 메모리** | 22GB | 16GB ✅ | 12GB |
-| **학습 가능 파라미터** | 317M | 105M | 53M |
-
-### 예상 성능 (31h 데이터셋)
-
-| 지표 | Full | Partial | Minimal |
-|------|------|---------|---------|
-| **Region Accuracy** | ~75% | ~73% ✅ | ~68% |
-| **Region F1 (Macro)** | ~0.72 | ~0.70 | ~0.65 |
-| **Gender Accuracy** | ~82% | ~80% | ~78% |
-
-*실제 성능은 데이터셋과 하이퍼파라미터에 따라 달라질 수 있습니다.*
-
-## 고급 기능
-
-### Config 파일 사용
-
-Python에서 직접 설정을 관리할 수 있습니다:
-```python
-from config import GeoAccentConfig
-
-# 기본 설정
-config = GeoAccentConfig()
-
-# 커스터마이징
-config = GeoAccentConfig(
-    batch_size=8,
-    num_epochs=30,
-    learning_rate=5e-5,
-    use_wandb=True
-)
-
-# 설정 저장
-config.save_config("my_config.json")
-
-# 설정 로드
-config = GeoAccentConfig.load_config("my_config.json")
-```
-
-### 지역 좌표 활용
+### Python API
 
 ```python
-from config import get_region_coordinates, REGION_COORDS
-
-# 정규화된 좌표
-norm_lat, norm_lon = get_region_coordinates('irish')
-
-# 원본 좌표
-lat, lon = REGION_COORDS['scottish']
-```
-
-### Attention Weight 시각화
-
-모델의 attention pattern을 분석할 수 있습니다:
-```bash
-python utils/visualize_attention.py \
-    --checkpoint experiments/.../best_model.pt \
-    --audio_files audio1.wav audio2.wav \
-    --output attention_viz.png
-```
-
-## API 사용 예시
-
-Python에서 직접 사용할 수 있습니다:
-```python
-from config import GeoAccentConfig
+from data.dataset import EnglishDialectsDataset, collate_fn
 from models.classifier import GeoAccentClassifier
 from train.trainer import AccentTrainer
+from utils.config import REGION_LABELS
 
-# 1. Config 생성
-config = GeoAccentConfig()
-config.print_summary()
-
-# 2. 모델 초기화
-model = GeoAccentClassifier(
-    model_name=config.pretrained_model,
-    num_regions=config.num_regions,
-    num_genders=config.num_genders,
-    hidden_dim=config.hidden_dim,
-    geo_embedding_dim=config.geo_embedding_dim,
-    fusion_dim=config.fusion_dim,
-    freeze_lower_layers=config.freeze_lower_layers,
-    num_frozen_layers=config.num_frozen_layers
+# Load dataset
+train_dataset = EnglishDialectsDataset(
+    split='train',
+    data_dir='./data/english_dialects',
+    audio_sample_rate=16000
 )
 
-# 3. Trainer 초기화
+# Create model
+model = GeoAccentClassifier(
+    model_name='facebook/wav2vec2-large-xlsr-53',
+    num_regions=len(REGION_LABELS),
+    num_genders=2,
+    hidden_dim=1024,
+    geo_embedding_dim=256,
+    fusion_dim=512,
+    dropout=0.1,
+    freeze_lower_layers=True,
+    num_frozen_layers=16,
+    use_fusion=True
+)
+
+# Create trainer
 trainer = AccentTrainer(
     model=model,
-    config=config,
+    criterion=criterion,
     train_loader=train_loader,
-    val_loader=val_loader
+    val_loader=val_loader,
+    device='cuda',
+    learning_rate=1e-5,
+    num_epochs=40
 )
 
-# 4. 학습 시작
+# Start training
 trainer.train()
 ```
 
-## 인용
+### Custom Data Preparation
 
-이 프로젝트를 사용하신다면 다음과 같이 인용해주세요:
+If you have custom Parquet files:
+
+```python
+from data.prepare_dataset import convert_parquet_to_wav
+
+convert_parquet_to_wav(
+    parquet_dir='/path/to/parquet/files',
+    save_dir='./data/custom_dataset',
+    train_ratio=0.8,
+    val_ratio=0.1,
+    test_ratio=0.1,
+    random_seed=42
+)
+```
+
+## Data Format
+
+### Metadata JSON Structure
+
+Each split contains a `metadata.json` file with entries:
+
+```json
+[
+  {
+    "audio_path": "audio/0.wav",
+    "text": "Transcript text",
+    "speaker_id": "speaker_001",
+    "config_name": "irish_male",
+    "line_id": "line_001",
+    "region_id": 0,
+    "gender_id": 0,
+    "normalized_lat": 0.814,
+    "normalized_lon": -0.995
+  },
+  ...
+]
+```
+
+### Coordinate Normalization
+
+Coordinates are normalized to [-1, 1] range:
+```python
+normalized_lat = 2 * (lat - LAT_MIN) / (LAT_MAX - LAT_MIN) - 1
+normalized_lon = 2 * (lon - LON_MIN) / (LON_MAX - LON_MIN) - 1
+```
+
+Bounds:
+- LAT_MIN: 51.4, LAT_MAX: 55.9
+- LON_MIN: -6.3, LON_MAX: -0.1
+
+## Citation
+
+If you use this project, please cite:
 
 ```bibtex
 @misc{geoaccent2024,
-  title={GeoAccent: Geographic-Aware British English Accent Classification with Attention Mechanism},
+  title={GeoAccent: Geographic-Aware British English Accent Classification},
   author={Your Name},
   year={2024},
   url={https://github.com/yourusername/GeoAccent}
 }
 ```
 
-## 참고 문헌
+## References
 
 - [Wav2Vec2 Paper](https://arxiv.org/abs/2006.11477) - Baevski et al., NeurIPS 2020
 - [XLSR-53](https://arxiv.org/abs/2006.13979) - Conneau et al., Interspeech 2020
 - [Attention Is All You Need](https://arxiv.org/abs/1706.03762) - Vaswani et al., NeurIPS 2017
 - [English Dialects Dataset](https://huggingface.co/datasets/ylacombe/english_dialects)
 
-## 라이선스
+## License
 
-MIT License - 자유롭게 사용, 수정, 배포할 수 있습니다.
+MIT License - Free to use, modify, and distribute.
 
-자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
+See [LICENSE](LICENSE) file for details.
 
-## 기여하기
+## Contributing
 
-프로젝트 개선에 기여를 환영합니다!
+Contributions are welcome!
 
-1. Repository를 Fork합니다
-2. Feature 브랜치를 생성합니다 (`git checkout -b feature/AmazingFeature`)
-3. 변경사항을 Commit합니다 (`git commit -m 'Add some AmazingFeature'`)
-4. 브랜치에 Push합니다 (`git push origin feature/AmazingFeature`)
-5. Pull Request를 생성합니다
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/NewFeature`)
+3. Commit your changes (`git commit -m 'Add NewFeature'`)
+4. Push to the branch (`git push origin feature/NewFeature`)
+5. Create a Pull Request
 
-## 문의
+## Contact
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/GeoAccent/issues)
 - **Email**: your.email@example.com
-- **Discussion**: [GitHub Discussions](https://github.com/yourusername/GeoAccent/discussions)
 
 ## Acknowledgments
 
-- [Hugging Face](https://huggingface.co) - Transformers 라이브러리 및 데이터셋
-- [Meta AI](https://www.meta.com/ai/) - Wav2Vec2 모델
+- [Hugging Face](https://huggingface.co) - Transformers library and datasets
+- [Meta AI](https://www.meta.com/ai/) - Wav2Vec2 model
 - [ylacombe](https://huggingface.co/ylacombe) - English Dialects Dataset
-
----
-
-**GeoAccent** - Where voices meet coordinates 🎤🗺️
