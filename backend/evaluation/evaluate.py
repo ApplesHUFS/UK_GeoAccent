@@ -37,22 +37,22 @@ class ModelEvaluator:
         print(f"Evaluation will run on {self.device}")
 
         # 1. Dataset and DataLoader setup
-        print("1. Loading test dataset...")
+        print(f"1. Loading {args.split} dataset...")
         self.test_dataset = EnglishDialectsDataset(
-            split='test', 
-            audio_sample_rate=16000, 
+            split=args.split,
+            audio_sample_rate=16000,
             data_dir="./data/english_dialects"
         )
-        
-        # DataLoader 생성 
+
+        # DataLoader 생성
         print("\n2. Creating DataLoader...")
         self.test_loader = DataLoader(
             self.test_dataset,
             batch_size=args.batch_size,
             shuffle=False,
-            num_workers=4,     
+            num_workers=4,
             collate_fn=collate_fn,
-            pin_memory=True  
+            pin_memory=True
         )
 
         # 2. Model setup

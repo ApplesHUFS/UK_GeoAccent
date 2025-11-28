@@ -67,23 +67,13 @@ def train_model(args):
     print(f"   Validation samples: {len(val_dataset)}")
 
     print("\n2. Creating DataLoaders...")
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                            num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
+    # train_loader는 shuffle=False로 설정 (dataset에서 이미 셔플됨)
+    # num_workers=0으로 설정하여 메모리 부족 문제 방지 (오디오 데이터가 큼)
+    # pin_memory=False로 설정하여 추가 메모리 사용 방지
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False,
+                            num_workers=0, collate_fn=collate_fn, pin_memory=False)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
-                            num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True)
-
-    print(f"\n[DEBUG] Validation batch check:")
-    val_loader_no_shuffle = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False,  # ← shuffle=False
-        num_workers=args.num_workers, collate_fn=collate_fn, pin_memory=True
-    )
-
-    print("First 10 batches region distribution:")
-    for batch_idx, batch in enumerate(val_loader_no_shuffle):
-        if batch_idx >= 10:
-            break
-        regions = batch['region_labels'].unique().tolist()
-        print(f"  Batch {batch_idx}: regions={regions}, size={len(batch['region_labels'])}")
+                            num_workers=0, collate_fn=collate_fn, pin_memory=False)
 
 
 

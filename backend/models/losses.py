@@ -30,13 +30,14 @@ class MultiTaskLossWithDistance(nn.Module):
         self.distance_weight = distance_weight
         self.device = device
 
-        region_labels_list = list(REGION_LABELS.keys())
-        class_weights_list = [REGION_CLASS_WEIGHTS[label] for label in region_labels_list]
+        # NOTE: Class weights are available in REGION_CLASS_WEIGHTS but not used
+        # Can be enabled by uncommenting the weight parameter below
+        # region_labels_list = list(REGION_LABELS.keys())
+        # class_weights_list = [REGION_CLASS_WEIGHTS[label] for label in region_labels_list]
+        # class_weights_tensor = torch.tensor(class_weights_list, dtype=torch.float, device=self.device)
+        # self.region_criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
 
-        class_weights_tensor = torch.tensor(class_weights_list, dtype=torch.float,device=self.device)
-        
-        self.region_criterion = nn.CrossEntropyLoss() #weight=class_weights_tensor
-        
+        self.region_criterion = nn.CrossEntropyLoss()
         self.gender_criterion = nn.CrossEntropyLoss()
         self.distance_criterion = nn.CosineEmbeddingLoss()
     

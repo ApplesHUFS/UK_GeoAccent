@@ -302,17 +302,8 @@ class AccentTrainer:
         correct = 0
         total = 0
 
-        first_batch = True
-
         with torch.no_grad():
             for batch in tqdm(self.val_loader, desc='Validation'):
-                if first_batch:
-                    print(f"\n[DEBUG] Batch keys: {batch.keys()}")
-                    print(f"[DEBUG] Batch size: {batch['input_values'].shape[0]}")
-                    print(f"[DEBUG] Region labels: {batch['region_labels']}")
-                    print(f"[DEBUG] Unique labels: {batch['region_labels'].unique()}")
-                    print(f"[DEBUG] Val loader length: {len(self.val_loader)}")
-                    first_batch = False
                 if self.use_amp:
                     amp_context = autocast(dtype=self.amp_dtype)
                 else:
